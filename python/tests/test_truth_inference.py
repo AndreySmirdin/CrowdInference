@@ -2,6 +2,7 @@ import unittest
 from typing import Iterable
 
 from crowd_inference.methods.majority_vote import MajorityVote
+from crowd_inference.methods.dawid_skene import DawidSkene
 from crowd_inference.model.estimation import Estimation
 from crowd_inference.truth_inference import TruthInference
 from tests.data_provider import SimpleGeneratedDataProvider, RelDataProvider, AdultsDataProvider
@@ -26,6 +27,18 @@ class TestTruthInference(unittest.TestCase):
 
         inference.fit(self._rel_data.labels())
         self.assertAlmostEqual(self._accuracy(self._rel_data.gold(), inference), 0.53, places=2)
+
+    def test_dawid_skene(self):
+        inference = DawidSkene()
+
+        # inference.fit(self._simple_data.labels())
+        # print(f"Simple accuracy: {self._accuracy(self._simple_data.gold(), inference)}")
+
+        inference.fit(self._adults_data.labels())
+        print(f"Adult accuracy: {self._accuracy(self._adults_data.gold(), inference)}")
+
+        inference.fit(self._rel_data.labels())
+        print(f"Rel accuracy: {self._accuracy(self._rel_data.gold(), inference)}")
 
     @staticmethod
     def _accuracy(gold: Iterable[Estimation], inference: TruthInference) -> float:
