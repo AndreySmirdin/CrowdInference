@@ -5,16 +5,18 @@ from crowd_inference.methods.majority_vote import MajorityVote
 from crowd_inference.methods.dawid_skene import DawidSkene
 from crowd_inference.model.estimation import Estimation
 from crowd_inference.truth_inference import TruthInference
-from tests.data_provider import SimpleGeneratedDataProvider, RelDataProvider, AdultsDataProvider
+from .data_provider import SimpleGeneratedDataProvider, RelDataProvider, AdultsDataProvider
 
 
 class TestTruthInference(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        import os
+        print(os.path.dirname(os.path.abspath(__file__)))
         cls._simple_data = SimpleGeneratedDataProvider()
-        cls._rel_data = RelDataProvider('../../resources/datasets/rel/trec-rf10-data.txt')
-        cls._adults_data = AdultsDataProvider('../../resources/datasets/adults/labels.txt',
-                                              '../../resources/datasets/adults/gold.txt')
+        cls._rel_data = RelDataProvider('./resources/datasets/rel/trec-rf10-data.txt')
+        cls._adults_data = AdultsDataProvider('./resources/datasets/adults/labels.txt',
+                                              './resources/datasets/adults/gold.txt')
 
     def test_majority_vote(self):
         inference = MajorityVote()
