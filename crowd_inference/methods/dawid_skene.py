@@ -13,10 +13,13 @@ class DawidSkene(NoFeaturesInference):
         super().__init__()
         self.predictions_ = {}
 
+    def __str__(self):
+        return 'DS'
+
     def estimate(self) -> Iterable[Estimation]:
         return [Estimation(task, val) for task, val in self.predictions_.items()]
 
-    def fit(self, annotations: Iterable[Annotation], max_iter=100):
+    def fit(self, annotations: Iterable[Annotation], max_iter=200):
         tasks = set(a.task for a in annotations)
         task_to_id = {task: i for i, task in enumerate(tasks)}
 
@@ -44,7 +47,6 @@ class DawidSkene(NoFeaturesInference):
             worker_annotations_values[i] = np.array(worker_annotations_values[i])
             worker_annotations_tasks[i] = np.array(worker_annotations_tasks[i])
 
-
         prior = np.zeros(len(values))
         old_conf_mx = [np.zeros((len(values), len(values))) for _ in workers]
 
@@ -65,14 +67,15 @@ class DawidSkene(NoFeaturesInference):
                     np.multiply.at(likelihood[j, :], worker_annotations_tasks[k], conf_mx[k][j, worker_annotations_values[k]])
             likelihood = np.transpose(likelihood)
 
-            logit = 1
+            self.logit_ = 1
             for i in range(len(tasks)):
                 s = 0
                 for j in range(len(values)):
                     prediction_distr[i, j] = prior[j] * likelihood[i, j]
                     s += prediction_distr[i, j]
-                logit += np.log(s)
-            print(f'Iter {iter:02}, logit: {logit / len(tasks):.6f}')
+                self.logit_ += np.log(s)
+            self.logit_ /= len(tasks)
+            print(f'Iter {iter:02}, logit: {self.logit_:.6f}')
 
             prediction_distr = sklearn.preprocessing.normalize(prediction_distr, axis=1, norm='l1')
 
