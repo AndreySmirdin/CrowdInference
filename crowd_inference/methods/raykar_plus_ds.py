@@ -5,13 +5,15 @@ import scipy
 from crowd_inference.model.annotation import Annotation
 from crowd_inference.model.estimation import Estimation
 from crowd_inference.truth_inference import WithFeaturesInference
+from crowd_inference.methods.raykar import update_w, get_predictions
 
 import numpy as np
+from scipy.special import expit
 import sklearn.preprocessing
 
 
 def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
+    return expit(x)
 
 
 class RaykarPlusDs(WithFeaturesInference):
@@ -24,7 +26,7 @@ class RaykarPlusDs(WithFeaturesInference):
         return 'Raykar+DS'
 
     def estimate(self) -> Iterable[Estimation]:
-        return [Estimation(task, val) for task, val in self.predictions_.items()]
+        return [Estimation(task, val[0]) for task, val in self.predictions_.items()]
 
     def fit(self, annotations: Iterable[Annotation], features: Dict[str, np.ndarray], max_iter=200, lr=0.1):
         self.get_annotation_parameters(annotations)
@@ -34,18 +36,23 @@ class RaykarPlusDs(WithFeaturesInference):
         n_values = len(self.values)
         n_features = len(features[self.tasks[0]])
         print(f"Data has {n_features} features")
-        assert n_values == 2, "Well, it's too complicated."
 
         X = np.zeros((n_tasks, n_features))
         for k, v in features.items():
             X[self.task_to_id[k]] = v
 
-        self.w = np.random.randn(n_features)
+        Xs = X.T.dot(X)
+        if n_values == 2:
+            self.w = np.zeros(n_features)
+        else:
+            self.w = np.zeros((n_values, n_features))
 
         l = np.random.uniform(size=n_tasks)
         mu = self.get_majority_vote_probs(annotations)
         prior = np.zeros(n_values)
         worker_annotations_values, worker_annotations_tasks = self.get_worker_annotation(annotations)
+        self.logit_ = []
+        self.weights = []
 
         for iter in range(max_iter):
             conf_mx = np.zeros((n_workers, n_values, n_values))
@@ -59,17 +66,7 @@ class RaykarPlusDs(WithFeaturesInference):
             for j in range(n_values):
                 prior[j] = np.sum(mu[:, j]) / n_tasks
 
-            g = np.zeros_like(self.w)
-            for i in range(n_tasks):
-                g += (mu[i, 0] - sigmoid(self.w.T @ X[i])) * X[i]
-
-            H = np.zeros((n_features, n_features))
-            for i in range(n_tasks):
-                s = sigmoid(self.w.T @ X[i])
-                x = X[i].reshape(1, -1)
-                H -= s * (1 - s) * x.T @ x
-            inv = scipy.linalg.inv(H)
-            self.w = self.w - lr * inv @ g
+            self.w = update_w(X, Xs, self.w, mu, n_tasks, n_values, n_features, lr)
 
             likelihood = np.ones((n_values, n_tasks))
             for k in range(n_workers):
@@ -78,34 +75,40 @@ class RaykarPlusDs(WithFeaturesInference):
                                    conf_mx[k][j, worker_annotations_values[k]])
             likelihood = np.transpose(likelihood)
 
-            predictions = np.zeros((n_tasks, n_values))
+            predictions = get_predictions(self.w, X, n_tasks, n_values)
+            
+#             r_weight = l.mean()
             for i in range(n_tasks):
-                predictions[i, 0] = sigmoid(self.w.T @ X[i])
-                predictions[i, 1] = 1 - predictions[i, 0]
-
-            self.logit_ = 1
-            for i in range(n_tasks):
-                s = 0
-                r_sum = 0
-                r_ds_sum = 0
                 for j in range(n_values):
                     mu[i, j] = (predictions[i, j] * l[i] + prior[j] * (1 - l[i])) * likelihood[i, j]
-                    s += mu[i, j]
-                    r_sum += likelihood[i, j] * predictions[i, j]
-                    r_ds_sum += likelihood[i, j] * (predictions[i, j] + prior[j])
-                self.logit_ += np.log(s)
-                l[i] = r_sum / r_ds_sum
-            self.logit_ /= n_tasks
-            print(f'Iter {iter:02}, logit: {self.logit_:.6f}')
-
+            
             mu = sklearn.preprocessing.normalize(mu, axis=1, norm='l1')
+            
+            ds_sum = (mu * likelihood * prior).max(axis=1)
+            r_sum = (mu * likelihood * predictions).max(axis=1)
+            # Optimize lambda
+            l = r_sum > ds_sum
+            
+            l_matrix = np.hstack([l.reshape(-1, 1)] * n_values)
+            weights = predictions * l_matrix + np.stack([prior] * n_tasks) * (1 - l_matrix)
+            loglike = self.get_loglike(mu, weights, likelihood)
 
-        self.predictions_ = {t: self.values[np.argmax(mu[i, :])] for t, i in self.task_to_id.items()}
+#             assert not self.logit_ or loglike - self.logit_[-1] > -1e-4, self.logit_[-1] - loglike
+            self.logit_.append(loglike)
+            if iter % 10 == 0:
+                print(f'Iter {iter:02}, logit: {loglike:.6f}')
+                print(f'Average Raykar weight is {l.mean()}')
+
+        self.predictions_ = {t: (self.values[np.argmax(mu[i, :])], mu[i], predictions[i], l[i], (ds_sum[i], r_sum[i]), likelihood[i]) for t, i in self.task_to_id.items()}
         print(f'Average Raykar weight is {l.mean()}')
-
-    def apply_classifier(self, features: Dict[str, np.ndarray]) -> Dict[str, str]:
-        result = {}
-        for k, x in features.items():
-            result[k] = self.values[0 if sigmoid(self.w.T @ np.array(x, dtype='float')) >= 0.5 else 1]
-
-        return result
+        self.conf_mx = conf_mx
+        
+    def apply_classifier(self, features: np.ndarray) -> Dict[str, str]:
+        res = []
+        if len(self.w.shape) == 1:
+            for prob in sigmoid(features @ self.w.T):
+                res.append(self.values[0 if prob > 0.5 else 1])    
+        else:
+            for probs in np.dot(features, self.w.T):
+                res.append(self.values[np.argmax(probs)])
+        return np.array(res)

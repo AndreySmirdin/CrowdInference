@@ -56,15 +56,22 @@ class TruthInference:
             worker_annotations_tasks[i] = np.array(worker_annotations_tasks[i])
 
         return worker_annotations_values, worker_annotations_tasks
+    
+    def get_loglike(self, mu, prior, likelihood):
+        if prior.shape != likelihood.shape:
+            prior = np.stack([prior] * len(likelihood))
+        loglike = (mu * prior * likelihood).sum(axis=1)
+        loglike = np.log(loglike).sum()
+        return loglike / len(likelihood)
 
 
 class NoFeaturesInference(TruthInference):
     @abstractmethod
-    def fit(self, annotations: Iterable[Annotation]):
+    def fit(self, annotations: Iterable[Annotation]) -> np.ndarray:
         pass
 
 
 class WithFeaturesInference(TruthInference):
     @abstractmethod
-    def fit(self, annotations: Iterable[Annotation], features: Dict[str, np.ndarray]):
+    def fit(self, annotations: Iterable[Annotation], features: Dict[str, np.ndarray]) -> np.ndarray:
         pass

@@ -4,15 +4,13 @@ import pickle
 import numpy as np
 import pandas as pd
 from abc import abstractmethod
-from typing import Iterable, Dict, List, Optional
+from typing import Iterable, Dict, List, Optional, Tuple
 
 from crowd_inference.model.annotation import Annotation
 from crowd_inference.model.estimation import Estimation
 
 
 class DataProvider:
-    _labels = []
-    _gold = []
 
     @abstractmethod
     def labels(self) -> Iterable[Annotation]:
@@ -89,25 +87,61 @@ class AdultsDataProvider(DataProvider):
 
 
 class MusicDataProvider(DataProvider):
-    def __init__(self, data_path: str):
+    ANNOTATIONS_PATH = './resources/datasets/music_genre/music_genre_mturk.csv'
+    GOLD_PATH = './resources/datasets/music_genre/music_genre_gold.csv'
+    TEST_PATH = './resources/datasets/music_genre/music_genre_test.csv'
+    
+    def __init__(self):
         self._music_labels = []
         self._music_gold = []
-        data = pd.read_csv(data_path)
+        self._features = {}
+        data = pd.read_csv(self.ANNOTATIONS_PATH)
         for _, row in data.iterrows():
             self._music_labels.append(Annotation(row['annotator'], row['id'], row['class']))
 
         for id_, group in data.groupby(['id']):
             gold = id_.split('.')[0]
             self._music_gold.append(Estimation(id_, gold))
+            
+        def get_features(x):
+            return x[1:-1]
+        
+        gold = pd.read_csv(self.GOLD_PATH)
+        n_features = None
+        for _, row in gold.iterrows():
+            features = get_features(row.values)
+            self._features[row['id']] = np.concatenate([features, [1]])
+            n_features = len(features) + 1
+            
+        test = pd.read_csv(self.TEST_PATH)
+        n = len(test)
+        self.X = np.zeros((n, n_features))
+        self.y = []
+        
+        for i, row in test.iterrows():
+            features = get_features(row.values)
+            self.X[i] = np.concatenate([features, [1]])
+            self.y.append(row.values[-1])
+            
+        self.y = np.array(self.y)
 
     def labels(self) -> Iterable[Annotation]:
         return self._music_labels
 
     def gold(self) -> Iterable[Estimation]:
         return self._music_gold
+    
+    def features(self) -> Dict[str, np.ndarray]:
+        return self._features
+    
+    def test(self) -> Tuple[np.ndarray, np.ndarray]:
+        return self.X, self.y
+
 
 
 class SentimentDataProvider(DataProvider):
+    TEST_PATH = './resources/datasets/sentiment_polarity/polarity_test_lsa_topics.csv'
+    
     def __init__(self, labels_path: str, gold_path: str):
         self._sentiment_labels = []
         self._sentiment_gold = []
@@ -117,10 +151,28 @@ class SentimentDataProvider(DataProvider):
             self._sentiment_labels.append(Annotation(row['WorkerId'], row['Input.id'], row['Answer.sent']))
 
         gold = pd.read_csv(gold_path)
+        
+        def get_features(x):
+            return x[1:-1:3]
+        
+        n_features = None
         for _, row in gold.iterrows():
             self._sentiment_gold.append(Estimation(row['id'], row['class']))
-            features = row.values[1:-1190]
+            features = get_features(row.values)
             self._features[row['id']] = features
+            n_features = len(features)
+        
+        test = pd.read_csv(self.TEST_PATH)
+        n = len(test)
+        self.X = np.zeros((n, n_features))
+        self.y = []
+        
+        for i, row in test.iterrows():
+            features = get_features(row.values)
+            self.X[i] = features
+            self.y.append(row.values[-1])
+            
+        self.y = np.array(self.y)
 
     def labels(self) -> Iterable[Annotation]:
         return self._sentiment_labels
@@ -130,12 +182,16 @@ class SentimentDataProvider(DataProvider):
 
     def features(self) -> Dict[str, np.ndarray]:
         return self._features
+    
+    def test(self) -> Tuple[np.ndarray, np.ndarray]:
+        return self.X, self.y
 
-
-class IonosphereProvide(DataProvider):
+class IonosphereProvider(DataProvider):
     def __init__(self, save_path, resample: bool = False, path: Optional[str] = None,
                  flip_probs: Optional[List[float]] = None,
                  annotate_prob: Optional[float] = None):
+        self._labels = []
+        self._gold = []
         self._features = {}
 
         if not resample:
@@ -155,7 +211,7 @@ class IonosphereProvide(DataProvider):
                     else:
                         label = 'b' if row[-1] == 'g' else 'g'
                     self._labels.append(Annotation(str(j), str(i), label))
-
+        print(len(self._labels))
         for i, row in data.iterrows():
             to_array = row.values
             to_array[1] += 1  # Fix zero feature
