@@ -1,10 +1,14 @@
 import csv
+import os
 import pickle
 
 import numpy as np
 import pandas as pd
 from abc import abstractmethod
 from typing import Iterable, Dict, List, Optional, Tuple
+
+from sklearn import preprocessing
+from sklearn.datasets import load_svmlight_file
 
 from crowd_inference.model.annotation import Annotation
 from crowd_inference.model.estimation import Estimation
@@ -19,6 +23,18 @@ class DataProvider:
     @abstractmethod
     def gold(self) -> Iterable[Estimation]:
         pass
+
+
+def group_data(features, gold):
+    id_list = []
+    feature_list = []
+    gold_list = []
+
+    for g in gold:
+        id_list.append(g.task)
+        gold_list.append(g.value)
+        feature_list.append(features[g.task])
+    return np.array(id_list), np.array(feature_list, dtype='float'), np.array(gold_list)
 
 
 class SimpleGeneratedDataProvider(DataProvider):
@@ -90,7 +106,7 @@ class MusicDataProvider(DataProvider):
     ANNOTATIONS_PATH = './resources/datasets/music_genre/music_genre_mturk.csv'
     GOLD_PATH = './resources/datasets/music_genre/music_genre_gold.csv'
     TEST_PATH = './resources/datasets/music_genre/music_genre_test.csv'
-    
+
     def __init__(self):
         self._music_labels = []
         self._music_gold = []
@@ -102,27 +118,35 @@ class MusicDataProvider(DataProvider):
         for id_, group in data.groupby(['id']):
             gold = id_.split('.')[0]
             self._music_gold.append(Estimation(id_, gold))
-            
+
         def get_features(x):
-            return x[1:-1]
-        
+            x = x[1:-1]
+            return x
+
         gold = pd.read_csv(self.GOLD_PATH)
-        n_features = None
+        features, ids = [], []
         for _, row in gold.iterrows():
-            features = get_features(row.values)
-            self._features[row['id']] = np.concatenate([features, [1]])
-            n_features = len(features) + 1
-            
+            features.append(get_features(row.values))
+            ids.append(row['id'])
+
+        features = np.array(features)
+        scaler = preprocessing.MinMaxScaler().fit(features)
+        features = scaler.transform(features)
+        features = np.hstack([features, np.ones((len(features), 1))])
+        for i, f in zip(ids, features):
+            self._features[i] = f
+
         test = pd.read_csv(self.TEST_PATH)
         n = len(test)
-        self.X = np.zeros((n, n_features))
+        self.X = np.zeros((n, features.shape[1]))
         self.y = []
-        
+
         for i, row in test.iterrows():
-            features = get_features(row.values)
-            self.X[i] = np.concatenate([features, [1]])
+            cur_features = get_features(row.values).reshape(1, -1)
+            cur_features = scaler.transform(cur_features).reshape(-1)
+            self.X[i] = np.concatenate([cur_features, [1]])
             self.y.append(row.values[-1])
-            
+
         self.y = np.array(self.y)
 
     def labels(self) -> Iterable[Annotation]:
@@ -130,18 +154,17 @@ class MusicDataProvider(DataProvider):
 
     def gold(self) -> Iterable[Estimation]:
         return self._music_gold
-    
+
     def features(self) -> Dict[str, np.ndarray]:
         return self._features
-    
+
     def test(self) -> Tuple[np.ndarray, np.ndarray]:
         return self.X, self.y
 
 
-
 class SentimentDataProvider(DataProvider):
     TEST_PATH = './resources/datasets/sentiment_polarity/polarity_test_lsa_topics.csv'
-    
+
     def __init__(self, labels_path: str, gold_path: str):
         self._sentiment_labels = []
         self._sentiment_gold = []
@@ -151,27 +174,27 @@ class SentimentDataProvider(DataProvider):
             self._sentiment_labels.append(Annotation(row['WorkerId'], row['Input.id'], row['Answer.sent']))
 
         gold = pd.read_csv(gold_path)
-        
+
         def get_features(x):
-            return x[1:-1:3]
-        
+            return x[1:-1:2]
+
         n_features = None
         for _, row in gold.iterrows():
             self._sentiment_gold.append(Estimation(row['id'], row['class']))
             features = get_features(row.values)
             self._features[row['id']] = features
             n_features = len(features)
-        
+
         test = pd.read_csv(self.TEST_PATH)
         n = len(test)
         self.X = np.zeros((n, n_features))
         self.y = []
-        
+
         for i, row in test.iterrows():
             features = get_features(row.values)
             self.X[i] = features
             self.y.append(row.values[-1])
-            
+
         self.y = np.array(self.y)
 
     def labels(self) -> Iterable[Annotation]:
@@ -182,9 +205,10 @@ class SentimentDataProvider(DataProvider):
 
     def features(self) -> Dict[str, np.ndarray]:
         return self._features
-    
+
     def test(self) -> Tuple[np.ndarray, np.ndarray]:
         return self.X, self.y
+
 
 class IonosphereProvider(DataProvider):
     def __init__(self, save_path, resample: bool = False, path: Optional[str] = None,
@@ -201,16 +225,17 @@ class IonosphereProvider(DataProvider):
 
         data = pd.read_csv(path)
         for i, row in data.iterrows():
-            has_annotation = np.random.binomial(1, annotate_prob, len(flip_probs))
-            while has_annotation.sum() == 0:
+            for _ in range(1):
                 has_annotation = np.random.binomial(1, annotate_prob, len(flip_probs))
-            for j, p in enumerate(flip_probs):
-                if has_annotation[j]:
-                    if np.random.binomial(1, 1 - p):
-                        label = row[-1]
-                    else:
-                        label = 'b' if row[-1] == 'g' else 'g'
-                    self._labels.append(Annotation(str(j), str(i), label))
+                while has_annotation.sum() == 0:
+                    has_annotation = np.random.binomial(1, annotate_prob, len(flip_probs))
+                for j, p in enumerate(flip_probs):
+                    if has_annotation[j]:
+                        if np.random.binomial(1, 1 - p):
+                            label = row[-1]
+                        else:
+                            label = 'b' if row[-1] == 'g' else 'g'
+                        self._labels.append(Annotation(str(j), str(i), label))
         print(len(self._labels))
         for i, row in data.iterrows():
             to_array = row.values
@@ -229,3 +254,204 @@ class IonosphereProvider(DataProvider):
 
     def features(self) -> Dict[str, np.ndarray]:
         return self._features
+
+
+class MushroomsDataProvider(DataProvider):
+    PATH = './resources/datasets/mushrooms/mushrooms.txt'
+    SAVE_PATH = './resources/datasets/mushrooms/mushrooms.pickle'
+
+    def __init__(self, resample: bool = False,
+                 flip_probs: Optional[List[float]] = None,
+                 annotate_prob: Optional[float] = None, test_train_split=0.8):
+        self._labels = []
+        self._gold = []
+        self._features = {}
+
+        if not resample:
+            with open(self.SAVE_PATH, 'rb') as f:
+                self._labels, self._gold, self._features = pickle.load(f)
+            return
+
+        X, y = load_svmlight_file(self.PATH)
+        train_size = int(len(y) * test_train_split)
+        test_size = len(y) - train_size
+        print((y == 1).sum())
+        print((y == 2).sum())
+        X = X.todense()
+        y = list(map(lambda x: str(int(x)), y))
+        for i in range(train_size):
+            for _ in range(1):
+                has_annotation = np.random.binomial(1, annotate_prob, len(flip_probs))
+                while has_annotation.sum() == 0:
+                    has_annotation = np.random.binomial(1, annotate_prob, len(flip_probs))
+
+                for j, p in enumerate(flip_probs):
+                    if has_annotation[j]:
+                        if np.random.binomial(1, 1 - p):
+                            label = y[i]
+                        else:
+                            label = '1' if y[i] == '2' else '2'
+                        self._labels.append(Annotation(str(j), str(i), label))
+
+            self._gold.append(Estimation(str(i), y[i]))
+            self._features[str(i)] = np.concatenate([np.asarray(X[i, ::2]).ravel().astype('float'), [1]])
+            self._features[str(i)] += np.random.randn(len(self._features[str(i)])) * 0.5
+        self.testX = np.asarray(X)[-test_size:]
+        self.testX = np.hstack([self.testX[:, ::2].astype('float'), np.ones((test_size, 1))])
+        self.testX += np.random.randn(*self.testX.shape) * 0.5
+        self.testY = np.array(y[-test_size:])
+
+        with open(self.SAVE_PATH, 'wb') as f:
+            pickle.dump((self._labels, self._gold, self._features), f)
+
+    def labels(self) -> Iterable[Annotation]:
+        return self._labels
+
+    def gold(self) -> Iterable[Estimation]:
+        return self._gold
+
+    def features(self) -> Dict[str, np.ndarray]:
+        return self._features
+
+    def test(self) -> Tuple[np.ndarray, np.ndarray]:
+        return self.testX, self.testY
+
+
+class SentimentDataProvider(DataProvider):
+    TEST_PATH = './resources/datasets/sentiment_polarity/polarity_test_lsa_topics.csv'
+
+    def __init__(self, labels_path: str, gold_path: str):
+        self._sentiment_labels = []
+        self._sentiment_gold = []
+        self._features = {}
+        labels = pd.read_csv(labels_path)
+        for _, row in labels.iterrows():
+            self._sentiment_labels.append(Annotation(row['WorkerId'], row['Input.id'], row['Answer.sent']))
+
+        gold = pd.read_csv(gold_path)
+
+        def get_features(x):
+            return x[1:-1:2]
+
+        n_features = None
+        for _, row in gold.iterrows():
+            self._sentiment_gold.append(Estimation(row['id'], row['class']))
+            features = get_features(row.values)
+            self._features[row['id']] = features
+            n_features = len(features)
+
+        test = pd.read_csv(self.TEST_PATH)
+        n = len(test)
+        self.X = np.zeros((n, n_features))
+        self.y = []
+
+        for i, row in test.iterrows():
+            features = get_features(row.values)
+            self.X[i] = features
+            self.y.append(row.values[-1])
+
+        self.y = np.array(self.y)
+
+    def labels(self) -> Iterable[Annotation]:
+        return self._sentiment_labels
+
+    def gold(self) -> Iterable[Estimation]:
+        return self._sentiment_gold
+
+    def features(self) -> Dict[str, np.ndarray]:
+        return self._features
+
+    def test(self) -> Tuple[np.ndarray, np.ndarray]:
+        return self.X, self.y
+
+
+class IonosphereProvider(DataProvider):
+    def __init__(self, save_path, resample: bool = False, path: Optional[str] = None,
+                 flip_probs: Optional[List[float]] = None,
+                 annotate_prob: Optional[float] = None):
+        self._labels = []
+        self._gold = []
+        self._features = {}
+
+        if not resample:
+            with open(save_path, 'rb') as f:
+                self._labels, self._gold, self._features = pickle.load(f)
+            return
+
+        data = pd.read_csv(path)
+        for i, row in data.iterrows():
+            for _ in range(1):
+                has_annotation = np.random.binomial(1, annotate_prob, len(flip_probs))
+                while has_annotation.sum() == 0:
+                    has_annotation = np.random.binomial(1, annotate_prob, len(flip_probs))
+                for j, p in enumerate(flip_probs):
+                    if has_annotation[j]:
+                        if np.random.binomial(1, 1 - p):
+                            label = row[-1]
+                        else:
+                            label = 'b' if row[-1] == 'g' else 'g'
+                        self._labels.append(Annotation(str(j), str(i), label))
+        print(len(self._labels))
+        for i, row in data.iterrows():
+            to_array = row.values
+            to_array[1] += 1  # Fix zero feature
+            self._gold.append(Estimation(str(i), to_array[-1]))
+            self._features[str(i)] = to_array[:-1]
+
+        with open(save_path, 'wb') as f:
+            pickle.dump((self._labels, self._gold, self._features), f)
+
+    def labels(self) -> Iterable[Annotation]:
+        return self._labels
+
+    def gold(self) -> Iterable[Estimation]:
+        return self._gold
+
+    def features(self) -> Dict[str, np.ndarray]:
+        return self._features
+
+
+class TolokaDataProvider(DataProvider):
+    DIR = './resources/datasets/TlkAggFtrs'
+    FEATURES_PATH = os.path.join(DIR, 'features.tsv')
+    GOLD_PATH = os.path.join(DIR, 'golden_labels.tsv')
+    CROWD_PATH = os.path.join(DIR, 'crowd_labels.tsv')
+
+    def __init__(self):
+        self._toloka_labels = []
+        self._toloka_gold = []
+        self._features = {}
+
+        tasks = set()
+        with open(self.GOLD_PATH, 'r') as f:
+            for line in f:
+                words = line.split()
+                self._toloka_gold.append(Estimation(words[0], words[1]))
+                tasks.add(words[0])
+
+        with open(self.CROWD_PATH, 'r') as f:
+            for line in f:
+                words = line.split()
+                if words[1] in tasks:
+                    self._toloka_labels.append(Annotation(words[0], words[1], words[2]))
+
+        # n_features = None
+
+        with open(self.FEATURES_PATH, 'r') as f:
+            for line in f:
+                split = line.split()
+                if split[0] in tasks:
+                    features = list(map(float, split[1:]))
+                    self._features[split[0]] = np.concatenate([features, [1]])
+
+    def labels(self) -> Iterable[Annotation]:
+        return self._toloka_labels
+
+    def gold(self) -> Iterable[Estimation]:
+        return self._toloka_gold
+
+    def features(self) -> Dict[str, np.ndarray]:
+        return self._features
+
+    # def test(self) -> Tuple[np.ndarray, np.ndarray]:
+    #     return self.X, self.y

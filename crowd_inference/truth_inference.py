@@ -56,14 +56,25 @@ class TruthInference:
             worker_annotations_tasks[i] = np.array(worker_annotations_tasks[i])
 
         return worker_annotations_values, worker_annotations_tasks
-    
+
     def get_loglike(self, mu, prior, likelihood):
         if prior.shape != likelihood.shape:
             prior = np.stack([prior] * len(likelihood))
-        loglike = (mu * prior * likelihood).sum(axis=1)
+        # t = np.exp(likelihood)
+        # print(t.max(), t.min())
+        loglike = (mu * prior * np.exp(likelihood)).sum(axis=1)
         loglike = np.log(loglike).sum()
         return loglike / len(likelihood)
 
+    def calculate_likelihoods(self, conf_mx, worker_annotations_values, worker_annotations_tasks):
+        likelihood = np.zeros((len(self.values), len(self.tasks)))
+        for k in range(len(self.workers)):
+            for j in range(len(self.values)):
+                val = conf_mx[k][j, worker_annotations_values[k]]
+                np.add.at(likelihood[j, :], worker_annotations_tasks[k],
+                          np.log(val, out=-np.ones_like(val) * np.inf, where=(val != 0)))
+        likelihood = np.transpose(likelihood)
+        return likelihood
 
 class NoFeaturesInference(TruthInference):
     @abstractmethod

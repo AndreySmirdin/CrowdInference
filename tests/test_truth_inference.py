@@ -7,7 +7,7 @@ from crowd_inference.methods.raykar import Raykar
 from crowd_inference.methods.raykar_plus_ds import RaykarPlusDs
 from crowd_inference.truth_inference import NoFeaturesInference, TruthInference, WithFeaturesInference
 from .data_provider import SimpleGeneratedDataProvider, RelDataProvider, AdultsDataProvider, DataProvider, \
-    MusicDataProvider, SentimentDataProvider, IonosphereProvide
+    MusicDataProvider, SentimentDataProvider, IonosphereProvider, MushroomsDataProvider, TolokaDataProvider
 
 
 class TestTruthInference(unittest.TestCase):
@@ -17,6 +17,9 @@ class TestTruthInference(unittest.TestCase):
         print(os.path.dirname(os.path.abspath(__file__)))
         np.random.seed(100)
         cls._simple_data = SimpleGeneratedDataProvider()
+        flip_probs = [0.1, 0.2, 0.3, 0.5, 0.6]
+        annotate_prob = 0.7
+        cls._mushrooms_data = MushroomsDataProvider(resample=False, flip_probs=flip_probs, annotate_prob=annotate_prob)
         cls._rel_data = RelDataProvider('./resources/datasets/rel/trec-rf10-data.txt')
         cls._adults_data = AdultsDataProvider('./resources/datasets/adults/labels.txt',
                                               './resources/datasets/adults/gold.txt')
@@ -24,31 +27,41 @@ class TestTruthInference(unittest.TestCase):
         # cls._sentiment_data = SentimentDataProvider('./resources/datasets/sentiment_polarity/mturk_answers.csv',
         #                                             './resources/datasets/sentiment_polarity/polarity_gold_lsa_topics.csv')
 
-        flip_probs = [0.1, 0.2, 0.3, 0.5, 0.6]
-        cls._ionosphere_data = IonosphereProvide('./resources/datasets/ionosphere/ionosphere.pickle', resample=True,
+
+        cls._ionosphere_data = IonosphereProvider('./resources/datasets/ionosphere/ionosphere.pickle', resample=False,
                                                  path='./resources/datasets/ionosphere/ionosphere.csv',
                                                  flip_probs=flip_probs,
-                                                 annotate_prob=0.7)
+                                                 annotate_prob=annotate_prob)
+        cls._toloka_data = TolokaDataProvider()
         # print(len(cls._ionosphere_data.labels()), len(cls._ionosphere_data.gold()))
 
     def test_majority_vote(self):
         mv = MajorityVote()
-        self._assert_accuracy(self._simple_data, mv, 0.33)
-        self._assert_accuracy(self._adults_data, mv, 0.76)
-        self._assert_accuracy(self._rel_data, mv, 0.53)
-        self._assert_accuracy(self._ionosphere_data, mv, 0.62)
+        # self._assert_accuracy(self._simple_data, mv, 0.33)
+        # self._assert_accuracy(self._adults_data, mv, 0.76)
+        # self._assert_accuracy(self._rel_data, mv, 0.53)
+        # self._assert_accuracy(self._ionosphere_data, mv, 0.80)
+        self._assert_accuracy(self._sentiment_data, mv, 0.88)
+        # self._assert_accuracy(self._mushrooms_data, mv, 0.76)
+        # self._assert_accuracy(self._toloka_data, mv, 0.84)
+        # self._assert_accuracy(self._music_data, mv, 0.79)
 
     def test_dawid_skene(self):
         ds = DawidSkene()
         # self._assert_accuracy(self._simple_data, ds, 0.33)
         # self._assert_accuracy(self._adults_data, ds, 0.76)
         # self._assert_accuracy(self._rel_data, ds, 0.61)
-        self._assert_accuracy(self._ionosphere_data, ds, 0.88)
+        # self._assert_accuracy(self._ionosphere_data, ds, 0.85)
         # self._assert_accuracy(self._sentiment_data, ds, 0.91)
+        # self._assert_accuracy(self._mushrooms_data, ds, 0.81)
+        self._assert_accuracy(self._toloka_data, ds, 0.86)
+        # # self._assert_accuracy(self._music_data, ds, 0.78)
 
     def test_raykar(self):
         raykar = Raykar()
-        print(self._get_accuracy(self._sentiment_data, raykar))
+        self._assert_accuracy(self._mushrooms_data, raykar, 0.91)
+        self._assert_accuracy(self._ionosphere_data, raykar, 0.92)
+        # print(self._get_accuracy(self._sentiment_data, raykar))
 
     def test_ionosphere(self):
         raykar = Raykar()

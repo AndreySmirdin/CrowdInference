@@ -20,12 +20,13 @@ class DawidSkene(NoFeaturesInference):
         return [Estimation(task, val[0]) for task, val in self.predictions_.items()]
 
     def fit(self, annotations: Iterable[Annotation], max_iter=200):
-        tasks = set(a.task for a in annotations)
+        self.get_annotation_parameters(annotations)
+        tasks = sorted(list(set(a.task for a in annotations)))
         task_to_id = {task: i for i, task in enumerate(tasks)}
 
         workers = sorted(list(set(a.annotator for a in annotations)))
         worker_to_id = {worker: i for i, worker in enumerate(workers)}
-        
+
         values = sorted(list(set(a.value for a in annotations)))
         value_to_id = {value: i for i, value in enumerate(values)}
 
@@ -41,6 +42,7 @@ class DawidSkene(NoFeaturesInference):
             worker_annotations_values[a_id].append(value_id)
             worker_annotations_tasks[a_id].append(task_id)
             prediction_distr[task_id, value_id] += 1
+
         prediction_distr = sklearn.preprocessing.normalize(prediction_distr, axis=1, norm='l1')
 
         for i in range(len(worker_to_id)):
@@ -50,44 +52,41 @@ class DawidSkene(NoFeaturesInference):
         prior = np.zeros(len(values))
         old_conf_mx = [np.zeros((len(values), len(values))) for _ in workers]
         self.logit_ = []
-        
+        self.mus = []
+        self.priors = []
+
         for iter in range(max_iter):
             conf_mx = [np.zeros((len(values), len(values))) for _ in workers]
             for k in range(len(workers)):
                 for j in range(len(values)):
-                    np.add.at(conf_mx[k][:, j], worker_annotations_values[k], prediction_distr[worker_annotations_tasks[k], j])
+                    np.add.at(conf_mx[k][:, j], worker_annotations_values[k],
+                              prediction_distr[worker_annotations_tasks[k], j])
                 conf_mx[k] = np.transpose(conf_mx[k])
                 conf_mx[k] = sklearn.preprocessing.normalize(conf_mx[k], axis=1, norm='l1')
 
+            print(conf_mx[worker_to_id['w196']][0])
+
             for j in range(len(values)):
                 prior[j] = np.sum(prediction_distr[:, j]) / len(tasks)
-            likelihood = np.ones((len(values), len(tasks)))
 
-            for k in range(len(workers)):
-                for j in range(len(values)):
-                    np.multiply.at(likelihood[j, :], worker_annotations_tasks[k], conf_mx[k][j, worker_annotations_values[k]])
-            likelihood = np.transpose(likelihood)
+            likelihood = self.calculate_likelihoods(conf_mx, worker_annotations_values, worker_annotations_tasks)
 
-#             self.logit_ = 1
             for i in range(len(tasks)):
                 s = 0
                 for j in range(len(values)):
-                    prediction_distr[i, j] = prior[j] * likelihood[i, j]
+                    prediction_distr[i, j] = np.log(prior[j]) + likelihood[i, j]
                     s += prediction_distr[i, j]
-#                 self.logit_ += np.log(s)
-#             self.logit_ /= len(tasks)
-            
-            prediction_distr = sklearn.preprocessing.normalize(prediction_distr, axis=1, norm='l1')
-            
-            loglike = self.get_loglike(prediction_distr, prior, likelihood)
-            assert not self.logit_ or self.logit_[-1] < loglike
-            self.logit_.append(loglike)
-            
-            if iter % 10 == 0:
-#                 print(f'Iter {iter:02}, logit: {self.logit_:.6f}')
-                print(f'Iter {iter:02}, logit: {loglike:.6f}')
-                
 
+                prediction_distr[i] -= prediction_distr[i].max()
+            prediction_distr = np.exp(prediction_distr)
+            prediction_distr = sklearn.preprocessing.normalize(prediction_distr, axis=1, norm='l1')
+
+            loglike = self.get_loglike(prediction_distr, prior, likelihood)
+            # assert not self.logit_ or self.logit_[-1] < loglike
+            self.logit_.append(loglike)
+
+            if iter % 10 == 0:
+                print(f'Iter {iter:02}, logit: {loglike:.6f}')
 
             converged = True
             for old, new in zip(old_conf_mx, conf_mx):
@@ -98,6 +97,17 @@ class DawidSkene(NoFeaturesInference):
                 break
 
             old_conf_mx = conf_mx
-            
-        self.predictions_ = {t: (values[np.argmax(prediction_distr[i, :])], prediction_distr[i, :]) for t, i in task_to_id.items()}
+            self.mus.append(prediction_distr.copy())
+            self.priors.append(prior.copy())
+
+        print('---------------')
+        for a in annotations:
+            if a.task == 't998':
+                print(a.annotator, conf_mx[self.worker_to_id[a.annotator]][0])
+                print(a.annotator, conf_mx[self.worker_to_id[a.annotator]][2])
+        self.mus = np.array(self.mus)
+        self.priors = np.array(self.priors)
+
+        self.predictions_ = {t: (values[np.argmax(prediction_distr[i, :])], prediction_distr[i, :]) for t, i in
+                             task_to_id.items()}
         self.conf_mx = np.array(conf_mx)
