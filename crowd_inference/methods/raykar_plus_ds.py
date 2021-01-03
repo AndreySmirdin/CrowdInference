@@ -72,13 +72,7 @@ class RaykarPlusDs(WithFeaturesInference):
 
             self.classifier.update_w(X, Xs, mu, n_tasks)
 
-            likelihood = np.ones((n_values, n_tasks))
-            for k in range(n_workers):
-                for j in range(n_values):
-                    np.multiply.at(likelihood[j, :], worker_annotations_tasks[k],
-                                   conf_mx[k][j, worker_annotations_values[k]])
-            likelihood = np.transpose(likelihood)
-
+            likelihood = self.calculate_likelihoods(conf_mx, worker_annotations_values, worker_annotations_tasks)
             predictions = self.classifier.get_predictions(X, n_tasks)
 
             grads = np.zeros(n_tasks)
@@ -102,15 +96,15 @@ class RaykarPlusDs(WithFeaturesInference):
 
             for i in range(n_tasks):
                 for j in range(n_values):
-                    mu[i, j] = (predictions[i, j] * l[i] + prior[j] * (1 - l[i])) * likelihood[i, j]
+                    mu[i, j] = np.log(predictions[i, j] * l[i] + prior[j] * (1 - l[i])) + likelihood[i, j]
 
+            mu = np.exp(mu)
             mu = sklearn.preprocessing.normalize(mu, axis=1, norm='l1')
 
             l_matrix = np.hstack([l.reshape(-1, 1)] * n_values)
             weights = predictions * l_matrix + np.stack([prior] * n_tasks) * (1 - l_matrix)
             loglike = self.get_loglike(mu, weights, likelihood)
 
-            #             assert not self.logit_ or loglike - self.logit_[-1] > -1e-4, self.logit_[-1] - loglike
             self.logit_.append(loglike)
             if iter % 10 == 0:
                 print(f'Iter {iter:02}, logit: {loglike:.6f}')

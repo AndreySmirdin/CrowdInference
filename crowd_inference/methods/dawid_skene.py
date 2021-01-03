@@ -61,10 +61,9 @@ class DawidSkene(NoFeaturesInference):
                 for j in range(len(values)):
                     np.add.at(conf_mx[k][:, j], worker_annotations_values[k],
                               prediction_distr[worker_annotations_tasks[k], j])
+                    conf_mx[k][:, j] += conf_mx[k][:, j].sum() * 0.005
                 conf_mx[k] = np.transpose(conf_mx[k])
                 conf_mx[k] = sklearn.preprocessing.normalize(conf_mx[k], axis=1, norm='l1')
-
-            print(conf_mx[worker_to_id['w196']][0])
 
             for j in range(len(values)):
                 prior[j] = np.sum(prediction_distr[:, j]) / len(tasks)
