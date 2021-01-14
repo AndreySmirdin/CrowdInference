@@ -5,6 +5,7 @@ import random
 
 import crowd_inference.methods.dawid_skene as ds
 import crowd_inference.methods.raykar as r
+import crowd_inference.methods.raykar_boosting as rb
 import crowd_inference.methods.raykar_plus_ds as rds
 import crowd_inference.methods.classifier as cls
 
@@ -55,7 +56,7 @@ def get_accuracy(provider: data.DataProvider, inference: TruthInference, max_ite
 
     if isinstance(inference, ds.DawidSkene):
         inference.fit(provider.labels(), max_iter=max_iter)
-    elif isinstance(inference, r.Raykar):
+    elif isinstance(inference, r.Raykar) or isinstance(inference, rb.RaykarWithBoosting):
         inference.fit(provider.labels(), provider.features(), max_iter=max_iter, lr=lr)
         get_classifier_accuracy(inference, provider)
     else:
@@ -84,10 +85,13 @@ def get_accuracy(provider: data.DataProvider, inference: TruthInference, max_ite
 def compare_methods(provider, max_iter=15, confidence_estimator=None, lr=0.1):
     results = []
     points_results = []
-    methods = [ds.DawidSkene(),
-               r.Raykar(), rds.RaykarPlusDs(),
-               #                rds.RaykarPlusDs(binary=True)
-               ]
+    methods = [
+        ds.DawidSkene(),
+        r.Raykar(),
+        # rds.RaykarPlusDs(),
+        rds.RaykarPlusDs(binary=True),
+        # rb.RaykarWithBoosting()
+    ]
     points = []
 
     for method in methods:
@@ -100,30 +104,30 @@ def compare_methods(provider, max_iter=15, confidence_estimator=None, lr=0.1):
         for k, v in method.predictions_.items():
             task.append(k)
             mu.append(np.round(v[1], 3))
+            conf_mx.append(np.round(v[4], 3))
             if isinstance(method, WithFeaturesInference):
                 classifier.append(np.round(v[2], 3))
                 grads.append(np.round(v[3], 5))
-                conf_mx.append(np.round(v[4], 3))
+
             if isinstance(method, rds.RaykarPlusDs):
-                #                 method_rds.append("R" if v[3] else "DS")
                 likelihood_rds.append(np.round(v[6], 3))
                 index.append(v[7])
 
-        columns = {'task': task, 'mu': mu}
+        columns = {'task': task, 'mu' + method.suffix(): mu, 'conf_mx' + method.suffix(): conf_mx}
         if len(classifier):
-            columns['classifier'] = classifier
-            columns['grad'] = grads
-            columns['conf_mx'] = conf_mx
+            columns['classifier' + method.suffix()] = classifier
+            columns['grad' + method.suffix()] = grads
+            columns['conf_mx' + method.suffix()] = conf_mx
         if len(likelihood_rds):
-            columns['likelihood_rds'] = likelihood_rds
+            columns['likelihood' + method.suffix()] = likelihood_rds
             columns['index'] = index
 
         points.append(pd.DataFrame(columns))
 
     print(len(points))
-    points_aggregated = points[1].merge(points[2], on='task', suffixes=('_r', '_rds'))
-    points_aggregated = points_aggregated.merge(points[0], on='task')
-    points_aggregated.rename(columns={'mu': 'mu_ds'}, inplace=True)
+    points_aggregated = points[0]
+    for i in range(1, len(points)):
+        points_aggregated = points_aggregated.merge(points[i], on='task')
 
     print(results)
 
@@ -179,7 +183,7 @@ def plots_for_point(points, data, methods, k):
 def build_grad_hist(data, methods, points, name, n_bucket=100):
     gold_dict = {e.task: e.value for e in data.gold()}
 
-    fig = plt.figure(figsize=(12, 8))
+    fig = plt.figure(figsize=(11, 9))
     ax = fig.subplots(nrows=2, ncols=1)
     print(f'Number of data points: {len(points)}')
 
@@ -197,8 +201,7 @@ def build_grad_hist(data, methods, points, name, n_bucket=100):
             #                 clazz = np.argmax(p.classifier_rds)
             #                 grad = np.abs(p.grad_rds)
             #             elif method == 1:
-            clazz = np.argmax(p.classifier_r)
-            grad = np.abs(p.grad_r)
+            grad = np.abs(p.grad_r[-1])
             flipped = np.argmax(p.mu_r) != np.argmax(p.conf_mx_r)
 
             if np.argmax(p.classifier_r) == methods[method].value_to_id[gold_dict[p.task]]:
@@ -257,12 +260,40 @@ def get_confidence(buckets, confidences):
     return get_confidence_binded
 
 
-def plot_flips(correct, wrong, name):
-    c = list(map(lambda x: x[name].max(), correct))
-    w = list(map(lambda x: x[name].max(), wrong))
+def plot_flips(correct, wrong, name, dataset_name, l1, l2):
+    c = list(map(lambda x: x.max(), correct[name]))
+    w = list(map(lambda x: x.max(), wrong[name]))
     plt.hist([c, w])
-    plt.legend(['correct', 'wrong'])
+    plt.legend([l1, l2])
+    plt.title(dataset_name + ' ' + name)
 
     print(len(correct), len(wrong))
 
 
+def boosting_classifiers_distr(pts1, pts2, name, metric='minmax'):
+    print(len(pts1), len(pts2))
+
+    def get_scores(pts):
+        scores = []
+        for p in pts.classifier_rb:
+            scores.append(p[:, 0])
+        scores = np.array(scores)
+        return scores
+
+    scores1 = get_scores(pts1)
+    scores2 = get_scores(pts2)
+    if metric == 'minmax':
+        plt.hist([scores1.max(axis=1) - scores1.min(axis=1), scores2.max(axis=1) - scores2.min(axis=1)])
+    elif metric == 'var':
+        plt.hist([np.var(scores1, axis=1), np.var(scores2, axis=1)])
+    else:
+        raise ValueError('Unknown metric')
+    plt.title(name + ' ' + metric + ' distribution')
+    plt.legend(['correct', 'wrong'])
+
+
+def plot_all_gradients(pts1, pts2, name):
+    for g in pts1.grad_r:
+        plt.plot(g, color='red', linewidth=1)
+    for g in pts2.grad_r:
+        plt.plot(g, color='blue', linewidth=1)

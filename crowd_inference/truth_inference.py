@@ -20,6 +20,10 @@ class TruthInference:
     logit_ = np.inf
 
     @abstractmethod
+    def suffix(self):
+        pass
+
+    @abstractmethod
     def estimate(self) -> Iterable[Estimation]:
         pass
 
@@ -75,6 +79,17 @@ class TruthInference:
                           np.log(val, out=-np.ones_like(val) * np.inf, where=(val != 0)))
         likelihood = np.transpose(likelihood)
         return likelihood
+
+    def calculate_conf_mx(self, mu, worker_annotations_values, worker_annotations_tasks):
+        conf_mx = np.zeros((len(self.workers), len(self.values), len(self.values)))
+        for k in range(len(self.workers)):
+            for j in range(len(self.values)):
+                np.add.at(conf_mx[k][:, j], worker_annotations_values[k],
+                          mu[worker_annotations_tasks[k], j])
+            conf_mx[k] = np.transpose(conf_mx[k])
+            conf_mx[k] = sklearn.preprocessing.normalize(conf_mx[k], axis=1, norm='l1')
+
+        return conf_mx
 
 class NoFeaturesInference(TruthInference):
     @abstractmethod

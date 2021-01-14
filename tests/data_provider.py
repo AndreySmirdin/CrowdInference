@@ -176,7 +176,7 @@ class SentimentDataProvider(DataProvider):
         gold = pd.read_csv(gold_path)
 
         def get_features(x):
-            return x[1:-1:2]
+            return x[1:-1:3]
 
         n_features = None
         for _, row in gold.iterrows():
@@ -269,7 +269,7 @@ class MushroomsDataProvider(DataProvider):
 
         if not resample:
             with open(self.SAVE_PATH, 'rb') as f:
-                self._labels, self._gold, self._features = pickle.load(f)
+                self._labels, self._gold, self._features, self.testX, self.testY = pickle.load(f)
             return
 
         X, y = load_svmlight_file(self.PATH)
@@ -302,7 +302,7 @@ class MushroomsDataProvider(DataProvider):
         self.testY = np.array(y[-test_size:])
 
         with open(self.SAVE_PATH, 'wb') as f:
-            pickle.dump((self._labels, self._gold, self._features), f)
+            pickle.dump((self._labels, self._gold, self._features, self.testX, self.testY), f)
 
     def labels(self) -> Iterable[Annotation]:
         return self._labels
@@ -433,8 +433,9 @@ class TolokaDataProvider(DataProvider):
             for line in f:
                 words = line.split()
                 if words[1] in tasks:
-                    self._toloka_labels.append(Annotation(words[0], words[1], words[2]))
-
+                    if int(words[0][-1]) % 5 == 0:
+                        self._toloka_labels.append(Annotation(words[0], words[1], words[2]))
+        # self._toloka_labels = self._toloka_labels[::6]
         # n_features = None
 
         with open(self.FEATURES_PATH, 'r') as f:

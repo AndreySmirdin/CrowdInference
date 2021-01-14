@@ -8,12 +8,7 @@ from crowd_inference.model.estimation import Estimation
 from crowd_inference.truth_inference import WithFeaturesInference
 
 import numpy as np
-from scipy.special import expit
 import sklearn.preprocessing
-
-
-def sigmoid(x):
-    return expit(x)
 
 
 class RaykarPlusDs(WithFeaturesInference):
@@ -26,15 +21,17 @@ class RaykarPlusDs(WithFeaturesInference):
     def __str__(self):
         return 'Raykar+DS'
 
+    def suffix(self):
+        return '_rds' + ('_binary' if self.binary else '')
+
     def estimate(self) -> Iterable[Estimation]:
         return [Estimation(task, val[0]) for task, val in self.predictions_.items()]
 
     def fit(self, annotations: Iterable[Annotation], features: Dict[str, np.ndarray], max_iter=200, lr=0.1,
-            confidence_estimator=None):
+            confidence_estimator=None, n_cls=7):
         self.get_annotation_parameters(annotations)
 
         n_tasks = len(self.tasks)
-        n_workers = len(self.workers)
         n_values = len(self.values)
         n_features = len(features[self.tasks[0]])
         print(f"Data has {n_features} features")
@@ -44,7 +41,16 @@ class RaykarPlusDs(WithFeaturesInference):
             X[self.task_to_id[k]] = v
 
         Xs = X.T.dot(X)
+
+        # datasets = np.random.randint(0, n_tasks, (n_cls, n_tasks // 2))
+        # X_boosted = np.zeros((n_cls, n_tasks // 2, n_features))
+        # Xs_boosted = []
+        # for i in range(n_cls):
+        #     X_boosted[i] = X[datasets[i]]
+        #     Xs_boosted.append(X_boosted[i].T.dot(X_boosted[i]))
+        
         self.classifier = Classifier(n_features, n_values, lr)
+        # self.classifiers = [Classifier(n_features, n_values, lr) for _ in range(n_cls)]
 
         # l = np.random.uniform(size=n_tasks)
         l = np.zeros(n_tasks)
@@ -59,21 +65,21 @@ class RaykarPlusDs(WithFeaturesInference):
         self.priors = []
 
         for iter in range(max_iter):
-            conf_mx = np.zeros((n_workers, n_values, n_values))
-            for k in range(n_workers):
-                for j in range(n_values):
-                    np.add.at(conf_mx[k][:, j], worker_annotations_values[k],
-                              mu[worker_annotations_tasks[k], j])
-                conf_mx[k] = np.transpose(conf_mx[k])
-                conf_mx[k] = sklearn.preprocessing.normalize(conf_mx[k], axis=1, norm='l1')
+            conf_mx = self.calculate_conf_mx(mu, worker_annotations_values, worker_annotations_tasks)
 
             for j in range(n_values):
                 prior[j] = np.sum(mu[:, j]) / n_tasks
 
-            self.classifier.update_w(X, Xs, mu, n_tasks)
+            self.classifier.update_w(X, Xs, mu)
+            # for i, classifier in enumerate(self.classifiers):
+            #     classifier.update_w(X_boosted[i], Xs_boosted[i], mu[datasets[i]])
 
             likelihood = self.calculate_likelihoods(conf_mx, worker_annotations_values, worker_annotations_tasks)
             predictions = self.classifier.get_predictions(X, n_tasks)
+
+            # predictions_other = np.zeros((n_cls, n_tasks, n_values))
+            # for i in range(n_cls):
+            #     predictions_other[i] = self.classifiers[i].get_predictions(X, n_tasks)
 
             grads = np.zeros(n_tasks)
             mu_max = mu.argmax(axis=1)
@@ -87,12 +93,14 @@ class RaykarPlusDs(WithFeaturesInference):
                     for i in range(n_tasks):
                         confidence = confidence_estimator(grads[i])
                         l[i] = confidence
+                        if iter < max_iter * 0.85:
+                            l[:] = 1
 
             else:
                 for i in range(n_tasks):
                     l[i] = 1 if (likelihood[i, :] * predictions[i, :]).sum() > (
                                 likelihood[i, :] * prior).sum() else 0
-            l[:] = 0
+            # l[:] = 1 - (predictions_other[:, :, 0].max(axis=0) - predictions_other[:, :, 0].min(axis=0)) * 2
 
             for i in range(n_tasks):
                 for j in range(n_values):

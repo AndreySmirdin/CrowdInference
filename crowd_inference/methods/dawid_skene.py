@@ -16,6 +16,9 @@ class DawidSkene(NoFeaturesInference):
     def __str__(self):
         return 'DS'
 
+    def suffix(self):
+        return '_ds'
+
     def estimate(self) -> Iterable[Estimation]:
         return [Estimation(task, val[0]) for task, val in self.predictions_.items()]
 
@@ -56,14 +59,15 @@ class DawidSkene(NoFeaturesInference):
         self.priors = []
 
         for iter in range(max_iter):
-            conf_mx = [np.zeros((len(values), len(values))) for _ in workers]
-            for k in range(len(workers)):
-                for j in range(len(values)):
-                    np.add.at(conf_mx[k][:, j], worker_annotations_values[k],
-                              prediction_distr[worker_annotations_tasks[k], j])
-                    conf_mx[k][:, j] += conf_mx[k][:, j].sum() * 0.005
-                conf_mx[k] = np.transpose(conf_mx[k])
-                conf_mx[k] = sklearn.preprocessing.normalize(conf_mx[k], axis=1, norm='l1')
+            conf_mx = self.calculate_conf_mx(prediction_distr, worker_annotations_values, worker_annotations_tasks)
+            # conf_mx = [np.zeros((len(values), len(values))) for _ in workers]
+            # for k in range(len(workers)):
+            #     for j in range(len(values)):
+            #         np.add.at(conf_mx[k][:, j], worker_annotations_values[k],
+            #                   prediction_distr[worker_annotations_tasks[k], j])
+            #         conf_mx[k][:, j] += conf_mx[k][:, j].sum() * 0.005
+            #     conf_mx[k] = np.transpose(conf_mx[k])
+            #     conf_mx[k] = sklearn.preprocessing.normalize(conf_mx[k], axis=1, norm='l1')
 
             for j in range(len(values)):
                 prior[j] = np.sum(prediction_distr[:, j]) / len(tasks)
@@ -99,14 +103,16 @@ class DawidSkene(NoFeaturesInference):
             self.mus.append(prediction_distr.copy())
             self.priors.append(prior.copy())
 
+
+        print(self.priors[-1])
         print('---------------')
         for a in annotations:
-            if a.task == 't998':
-                print(a.annotator, conf_mx[self.worker_to_id[a.annotator]][0])
+            if a.task == 't109':
+                print(a.annotator, conf_mx[self.worker_to_id[a.annotator]][1])
                 print(a.annotator, conf_mx[self.worker_to_id[a.annotator]][2])
         self.mus = np.array(self.mus)
         self.priors = np.array(self.priors)
 
-        self.predictions_ = {t: (values[np.argmax(prediction_distr[i, :])], prediction_distr[i, :]) for t, i in
+        self.predictions_ = {t: (values[np.argmax(prediction_distr[i, :])], prediction_distr[i, :], None, None, likelihood[i]) for t, i in
                              task_to_id.items()}
         self.conf_mx = np.array(conf_mx)

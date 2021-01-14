@@ -4,6 +4,7 @@ import numpy as np
 from crowd_inference.methods.dawid_skene import DawidSkene
 from crowd_inference.methods.majority_vote import MajorityVote
 from crowd_inference.methods.raykar import Raykar
+from crowd_inference.methods.raykar_boosting import RaykarWithBoosting
 from crowd_inference.methods.raykar_plus_ds import RaykarPlusDs
 from crowd_inference.truth_inference import NoFeaturesInference, TruthInference, WithFeaturesInference
 from .data_provider import SimpleGeneratedDataProvider, RelDataProvider, AdultsDataProvider, DataProvider, \
@@ -19,13 +20,13 @@ class TestTruthInference(unittest.TestCase):
         cls._simple_data = SimpleGeneratedDataProvider()
         flip_probs = [0.1, 0.2, 0.3, 0.5, 0.6]
         annotate_prob = 0.7
-        cls._mushrooms_data = MushroomsDataProvider(resample=False, flip_probs=flip_probs, annotate_prob=annotate_prob)
+        # cls._mushrooms_data = MushroomsDataProvider(resample=False, flip_probs=flip_probs, annotate_prob=annotate_prob)
         cls._rel_data = RelDataProvider('./resources/datasets/rel/trec-rf10-data.txt')
         cls._adults_data = AdultsDataProvider('./resources/datasets/adults/labels.txt',
                                               './resources/datasets/adults/gold.txt')
-        # cls._music_data = MusicDataProvider('./resources/datasets/music_genre/music_genre_mturk.csv')
-        # cls._sentiment_data = SentimentDataProvider('./resources/datasets/sentiment_polarity/mturk_answers.csv',
-        #                                             './resources/datasets/sentiment_polarity/polarity_gold_lsa_topics.csv')
+        cls._music_data = MusicDataProvider()
+        cls._sentiment_data = SentimentDataProvider('./resources/datasets/sentiment_polarity/mturk_answers.csv',
+                                                    './resources/datasets/sentiment_polarity/polarity_gold_lsa_topics.csv')
 
 
         cls._ionosphere_data = IonosphereProvider('./resources/datasets/ionosphere/ionosphere.pickle', resample=False,
@@ -43,7 +44,7 @@ class TestTruthInference(unittest.TestCase):
         # self._assert_accuracy(self._ionosphere_data, mv, 0.80)
         self._assert_accuracy(self._sentiment_data, mv, 0.88)
         # self._assert_accuracy(self._mushrooms_data, mv, 0.76)
-        # self._assert_accuracy(self._toloka_data, mv, 0.84)
+        # self._assert_accuracy(self._toloka_data, mv, 0.83)
         # self._assert_accuracy(self._music_data, mv, 0.79)
 
     def test_dawid_skene(self):
@@ -55,13 +56,18 @@ class TestTruthInference(unittest.TestCase):
         # self._assert_accuracy(self._sentiment_data, ds, 0.91)
         # self._assert_accuracy(self._mushrooms_data, ds, 0.81)
         self._assert_accuracy(self._toloka_data, ds, 0.86)
-        # # self._assert_accuracy(self._music_data, ds, 0.78)
+        # self._assert_accuracy(self._music_data, ds, 0.75)
 
     def test_raykar(self):
         raykar = Raykar()
         self._assert_accuracy(self._mushrooms_data, raykar, 0.91)
         self._assert_accuracy(self._ionosphere_data, raykar, 0.92)
         # print(self._get_accuracy(self._sentiment_data, raykar))
+
+    def test_raykar_boosting(self):
+        raykar = RaykarWithBoosting()
+        self._assert_accuracy(self._mushrooms_data, raykar, 0.91)
+        self._assert_accuracy(self._ionosphere_data, raykar, 0.92)
 
     def test_ionosphere(self):
         raykar = Raykar()
