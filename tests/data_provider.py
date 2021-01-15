@@ -299,11 +299,12 @@ class SentimentDataProvider(DataProvider):
             features.append(get_features(row.values))
 
         features = np.array(features)
+        print(features.shape)
         scaler = MinMaxScaler().fit(features)
         features = scaler.transform(features)
         features = np.hstack([features, np.ones((len(features), 1))])
-        for e in self._sentiment_gold:
-            self._features[e.task] = features
+        for i, e in enumerate(self._sentiment_gold):
+            self._features[e.task] = features[i]
 
         n_features = features.shape[1]
 
