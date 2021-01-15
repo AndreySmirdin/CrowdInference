@@ -22,7 +22,7 @@ class Classifier:
             self.w = np.zeros((n_classes, n_features))
 
     def update_w(self, X, Xs, mu):
-        n_tasks = len(mu)
+        n_tasks = len(X)
         predictions = self.get_predictions(X, n_tasks)
         g = np.zeros_like(self.w)
         if self.n_classes == 2:
