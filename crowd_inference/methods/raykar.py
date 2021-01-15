@@ -15,6 +15,9 @@ class Raykar(WithFeaturesInference):
         super().__init__()
         self.predictions_ = {}
 
+        self.losses = []
+        self.accuracies = []
+
     def __str__(self):
         return 'Raykar'
 
@@ -24,7 +27,7 @@ class Raykar(WithFeaturesInference):
     def estimate(self) -> Iterable[Estimation]:
         return [Estimation(task, val[0]) for task, val in self.predictions_.items()]
 
-    def fit(self, annotations: Iterable[Annotation], features: Dict[str, np.ndarray], max_iter=200, lr=0.1):
+    def fit(self, annotations: Iterable[Annotation], features: Dict[str, np.ndarray], max_iter=200, lr=0.1, test=None):
         self.get_annotation_parameters(annotations)
 
         n_tasks = len(self.tasks)
@@ -69,7 +72,7 @@ class Raykar(WithFeaturesInference):
             loglike = self.get_loglike(mu, predictions, likelihood)
             self.logit_.append(loglike)
 
-            if iter % 10 == 0:
+            if iter % (max_iter // 5) == 0:
                 print(f'Iter {iter:02}, logit: {loglike:.6f}')
 
             grads = np.zeros(n_tasks)
@@ -80,6 +83,8 @@ class Raykar(WithFeaturesInference):
 
             self.mus.append(mu.copy())
             self.cls.append(predictions.copy())
+
+            self.evaluate_classifier(test)
 
         self.grads_hist = np.array(self.grads_hist)
         self.mus = np.array(self.mus)

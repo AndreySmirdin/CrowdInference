@@ -78,7 +78,7 @@ class RaykarWithBoosting(WithFeaturesInference):
             loglike = self.get_loglike(mu, predictions_agg, likelihood)
             self.logit_.append(loglike)
 
-            if iter % 10 == 0:
+            if iter % (max_iter // 5) == 0:
                 print(f'Iter {iter:02}, logit: {loglike:.6f}')
 
             self.mus.append(mu.copy())

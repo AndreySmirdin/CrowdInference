@@ -13,6 +13,9 @@ class DawidSkene(NoFeaturesInference):
         super().__init__()
         self.predictions_ = {}
 
+        self.losses = []
+        self.accuracies = []
+
     def __str__(self):
         return 'DS'
 
@@ -88,7 +91,7 @@ class DawidSkene(NoFeaturesInference):
             # assert not self.logit_ or self.logit_[-1] < loglike
             self.logit_.append(loglike)
 
-            if iter % 10 == 0:
+            if iter % (max_iter // 5) == 0:
                 print(f'Iter {iter:02}, logit: {loglike:.6f}')
 
             converged = True

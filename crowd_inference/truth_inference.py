@@ -28,11 +28,11 @@ class TruthInference:
         pass
 
     def get_annotation_parameters(self, annotations: Iterable[Annotation]):
-        self.tasks = sorted(list(set(a.task for a in annotations)))
+        self.tasks = np.array(sorted(list(set(a.task for a in annotations))))
         self.task_to_id = {task: i for i, task in enumerate(self.tasks)}
-        self.workers = sorted(list(set(a.annotator for a in annotations)))
+        self.workers = np.array(sorted(list(set(a.annotator for a in annotations))))
         self.worker_to_id = {worker: i for i, worker in enumerate(self.workers)}
-        self.values = sorted(list(set(a.value for a in annotations)))
+        self.values = np.array(sorted(list(set(a.value for a in annotations))))
         self.value_to_id = {value: i for i, value in enumerate(self.values)}
 
     def get_majority_vote_probs(self, annotations: Iterable[Annotation]):
@@ -64,8 +64,6 @@ class TruthInference:
     def get_loglike(self, mu, prior, likelihood):
         if prior.shape != likelihood.shape:
             prior = np.stack([prior] * len(likelihood))
-        # t = np.exp(likelihood)
-        # print(t.max(), t.min())
         loglike = (mu * prior * np.exp(likelihood)).sum(axis=1)
         loglike = np.log(loglike).sum()
         return loglike / len(likelihood)
@@ -91,6 +89,7 @@ class TruthInference:
 
         return conf_mx
 
+
 class NoFeaturesInference(TruthInference):
     @abstractmethod
     def fit(self, annotations: Iterable[Annotation]) -> np.ndarray:
@@ -101,3 +100,13 @@ class WithFeaturesInference(TruthInference):
     @abstractmethod
     def fit(self, annotations: Iterable[Annotation], features: Dict[str, np.ndarray]) -> np.ndarray:
         pass
+
+    def evaluate_classifier(self, data):
+        if data is not None:
+            X, y = data
+            y_pred = self.classifier.get_predictions(X, len(X))
+            self.losses.append(sklearn.metrics.log_loss(y, y_pred))
+            self.accuracies.append(sklearn.metrics.accuracy_score(y, self.values[np.argmax(y_pred, axis=1)]))
+        else:
+            self.losses.append(0)
+            self.accuracies.append(0)

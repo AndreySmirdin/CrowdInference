@@ -37,13 +37,10 @@ def get_classifier_accuracy(inference: WithFeaturesInference, data_provider: dat
     accuracy = accuracy_score(y, classification)
     print(f'Classifier train accuracy is {accuracy}')
 
-    if isinstance(data_provider, data.MusicDataProvider) \
-            or isinstance(data_provider, data.SentimentDataProvider) or isinstance(data_provider,
-                                                                                   data.MushroomsDataProvider):
-        X, y = data_provider.test()
-        classification = inference.apply_classifier(X)
-        test_accuracy = accuracy_score(y, classification)
-        print(f'Classifier test accuracy is {test_accuracy}')
+    X, y = data_provider.test()
+    classification = inference.apply_classifier(X)
+    test_accuracy = accuracy_score(y, classification)
+    print(f'Classifier test accuracy is {test_accuracy}')
 
 
 def get_accuracy(provider: data.DataProvider, inference: TruthInference, max_iter: int, confidence_estimator,
@@ -57,11 +54,11 @@ def get_accuracy(provider: data.DataProvider, inference: TruthInference, max_ite
     if isinstance(inference, ds.DawidSkene):
         inference.fit(provider.labels(), max_iter=max_iter)
     elif isinstance(inference, r.Raykar) or isinstance(inference, rb.RaykarWithBoosting):
-        inference.fit(provider.labels(), provider.features(), max_iter=max_iter, lr=lr)
+        inference.fit(provider.labels(), provider.features(), max_iter=max_iter, lr=lr, test=provider.test())
         get_classifier_accuracy(inference, provider)
     else:
         inference.fit(provider.labels(), provider.features(), max_iter=max_iter,
-                      confidence_estimator=confidence_estimator, lr=lr)
+                      confidence_estimator=confidence_estimator, lr=lr, test=provider.test())
         get_classifier_accuracy(inference, provider)
 
     for estimate in inference.estimate():
@@ -88,16 +85,24 @@ def compare_methods(provider, max_iter=15, confidence_estimator=None, lr=0.1):
     methods = [
         ds.DawidSkene(),
         r.Raykar(),
-        # rds.RaykarPlusDs(),
-        rds.RaykarPlusDs(binary=True),
+        rds.RaykarPlusDs(),
+        # rds.RaykarPlusDs(binary=True),
         # rb.RaykarWithBoosting()
     ]
     points = []
 
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    test_stats = []
+
     for method in methods:
         accuracy, correct, incorrect = get_accuracy(provider, method, max_iter, confidence_estimator, lr)
         results.append((method.__str__(), accuracy))
-        plt.plot(method.logit_)
+        axes[0].plot(method.logit_)
+        if method.__str__() != 'DS':
+            axes[1].plot(method.losses)
+            axes[1].plot(method.accuracies)
+            test_stats.append(str(method) + ' loss')
+            test_stats.append(str(method) + ' accuracy')
         points_results.append((correct, incorrect))
         print('-' * 50)
         task, mu, classifier, likelihood_rds, conf_mx, index, grads = [], [], [], [], [], [], []
@@ -131,7 +136,8 @@ def compare_methods(provider, max_iter=15, confidence_estimator=None, lr=0.1):
 
     print(results)
 
-    plt.legend(list(map(str, methods)))
+    axes[0].legend(list(map(str, methods)))
+    axes[1].legend(test_stats)
 
     # Get points advantages
     advantages = []

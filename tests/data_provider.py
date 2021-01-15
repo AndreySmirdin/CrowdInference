@@ -421,29 +421,40 @@ class TolokaDataProvider(DataProvider):
         self._toloka_labels = []
         self._toloka_gold = []
         self._features = {}
+        self.X, self.y = [], []
 
         tasks = set()
+        test_labels = {}
         with open(self.GOLD_PATH, 'r') as f:
             for line in f:
                 words = line.split()
-                self._toloka_gold.append(Estimation(words[0], words[1]))
-                tasks.add(words[0])
+                task, label = words[0], words[1]
+                tasks.add(task)
+                if self._is_test_task(task):
+                    test_labels[task] = label
+                else:
+                    self._toloka_gold.append(Estimation(task, label))
 
         with open(self.CROWD_PATH, 'r') as f:
             for line in f:
                 words = line.split()
                 if words[1] in tasks:
-                    if int(words[0][-1]) % 5 == 0:
+                    if int(words[0][-1]) % 5 == 0 and not self._is_test_task(words[1]):
                         self._toloka_labels.append(Annotation(words[0], words[1], words[2]))
-        # self._toloka_labels = self._toloka_labels[::6]
-        # n_features = None
 
         with open(self.FEATURES_PATH, 'r') as f:
             for line in f:
                 split = line.split()
-                if split[0] in tasks:
+                task = split[0]
+                if task in tasks:
                     features = list(map(float, split[1:]))
-                    self._features[split[0]] = np.concatenate([features, [1]])
+                    if self._is_test_task(task):
+                        self.X.append(np.concatenate([features, [1]]))
+                        self.y.append(test_labels[task])
+                    else:
+                        self._features[task] = np.concatenate([features, [1]])
+        self.X = np.array(self.X)
+        self.y = np.array(self.y)
 
     def labels(self) -> Iterable[Annotation]:
         return self._toloka_labels
@@ -454,5 +465,9 @@ class TolokaDataProvider(DataProvider):
     def features(self) -> Dict[str, np.ndarray]:
         return self._features
 
-    # def test(self) -> Tuple[np.ndarray, np.ndarray]:
-    #     return self.X, self.y
+    def test(self) -> Tuple[np.ndarray, np.ndarray]:
+        return self.X, self.y
+
+    def _is_test_task(self, name):
+        n = int(name[1:])
+        return n % 8 == 0

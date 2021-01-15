@@ -18,6 +18,9 @@ class RaykarPlusDs(WithFeaturesInference):
         self.predictions_ = {}
         self.binary = binary
 
+        self.losses = []
+        self.accuracies = []
+
     def __str__(self):
         return 'Raykar+DS'
 
@@ -28,7 +31,7 @@ class RaykarPlusDs(WithFeaturesInference):
         return [Estimation(task, val[0]) for task, val in self.predictions_.items()]
 
     def fit(self, annotations: Iterable[Annotation], features: Dict[str, np.ndarray], max_iter=200, lr=0.1,
-            confidence_estimator=None, n_cls=7):
+            confidence_estimator=None, n_cls=7, test=None):
         self.get_annotation_parameters(annotations)
 
         n_tasks = len(self.tasks)
@@ -93,8 +96,6 @@ class RaykarPlusDs(WithFeaturesInference):
                     for i in range(n_tasks):
                         confidence = confidence_estimator(grads[i])
                         l[i] = confidence
-                        if iter < max_iter * 0.85:
-                            l[:] = 1
 
             else:
                 for i in range(n_tasks):
@@ -114,7 +115,7 @@ class RaykarPlusDs(WithFeaturesInference):
             loglike = self.get_loglike(mu, weights, likelihood)
 
             self.logit_.append(loglike)
-            if iter % 10 == 0:
+            if iter % (max_iter // 5) == 0:
                 print(f'Iter {iter:02}, logit: {loglike:.6f}')
                 print(f'Average Raykar weight is {l.mean()}')
             self.mus.append(mu.copy())
@@ -122,6 +123,7 @@ class RaykarPlusDs(WithFeaturesInference):
             self.conf_mxs.append(conf_mx.copy())
             self.priors.append(prior.copy())
             self.weights.append(l.copy())
+            self.evaluate_classifier(test)
 
         self.mus = np.array(self.mus)
         self.cls = np.array(self.cls)
