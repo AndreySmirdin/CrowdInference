@@ -3,6 +3,8 @@ import pandas as pd
 
 import random
 
+import sklearn
+
 import crowd_inference.methods.dawid_skene as ds
 import crowd_inference.methods.raykar as r
 import crowd_inference.methods.raykar_boosting as rb
@@ -10,7 +12,7 @@ import crowd_inference.methods.raykar_plus_ds as rds
 import crowd_inference.methods.classifier as cls
 
 from crowd_inference.truth_inference import NoFeaturesInference, TruthInference, WithFeaturesInference
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, log_loss
 from sklearn.linear_model import LinearRegression, LogisticRegression
 import matplotlib.pyplot as plt
 import tests.data_provider as data
@@ -303,3 +305,62 @@ def plot_all_gradients(pts1, pts2, name):
         plt.plot(g, color='red', linewidth=1)
     for g in pts2.grad_r:
         plt.plot(g, color='blue', linewidth=1)
+
+
+def run_mv_classifier(dataset, n_classes=2, iters=100, lr=0.1, hard=False):
+    X_train, y_train = features2np(dataset)
+    c = cls.Classifier(n_features=X_train.shape[1], n_classes=n_classes, lr=lr)
+
+    inference = TruthInference()
+    inference.get_annotation_parameters(dataset.labels())
+    mu = inference.get_majority_vote_probs(dataset.labels())
+
+    X = X_train
+    Xs = X.T.dot(X)
+
+    def add_accuracy(X, labels, accuracies, losses):
+        y_pred = c.get_predictions(X, len(X))
+        losses.append(log_loss(labels, y_pred))
+        accuracies.append(accuracy_score(labels, inference.values[np.argmax(y_pred, axis=1)]))
+
+    accuracies_train, accuracies_test, losses_train, losses_test = [], [], [], []
+
+    if hard:
+        mu = np.zeros((len(X_train), n_classes))
+        for i, label in enumerate(inference.values):
+            mu[y_train == label, i] = 1
+
+    for _ in tqdm(range(iters)):
+        c.update_w(X, Xs, mu)
+        add_accuracy(dataset.test()[0], dataset.test()[1], accuracies_test, losses_test)
+        add_accuracy(X_train, y_train, accuracies_train, losses_train)
+
+    _, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+    axes[0].plot(accuracies_test)
+    axes[0].plot(accuracies_train)
+
+    axes[1].plot(losses_test)
+    axes[1].plot(losses_train)
+
+    plt.legend(['Test', 'Train'])
+
+    return accuracies_test[-1]
+
+
+def mv_hard(dataset, C=1):
+    X_train, y_train = features2np(dataset)
+
+    inference = TruthInference()
+    inference.get_annotation_parameters(dataset.labels())
+    mu = inference.get_majority_vote_probs(dataset.labels())
+    print(mu[:15])
+    reg = LogisticRegression(fit_intercept=False, C=C).fit(X_train, mu.argmax(1))
+
+    X_test, y_test = dataset.test()
+    print(y_test)
+    print(reg.predict(X_test))
+    print(accuracy_score(y_train, inference.values[reg.predict(X_train)]))
+    return accuracy_score(y_test, inference.values[reg.predict(X_test)])
+    # print(accuracy_score(y_train, reg.predict(X_train)))
+    # return accuracy_score(y_test, reg.predict(X_test))

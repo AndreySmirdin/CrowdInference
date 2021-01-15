@@ -301,7 +301,7 @@ class SentimentDataProvider(DataProvider):
         features = np.array(features)
         print(features.shape)
         scaler = MinMaxScaler().fit(features)
-        features = scaler.transform(features)
+        # features = scaler.transform(features)
         features = np.hstack([features, np.ones((len(features), 1))])
         for i, e in enumerate(self._sentiment_gold):
             self._features[e.task] = features[i]
@@ -317,7 +317,7 @@ class SentimentDataProvider(DataProvider):
             features = get_features(row.values)
             self.X[i] = features
             self.y.append(row.values[-1])
-        self.X = scaler.transform(self.X)
+        # self.X = scaler.transform(self.X)
         self.X = np.hstack([self.X, np.ones((len(self.X), 1))])
 
         self.y = np.array(self.y)

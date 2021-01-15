@@ -105,6 +105,7 @@ class WithFeaturesInference(TruthInference):
         if data is not None:
             X, y = data
             y_pred = self.classifier.get_predictions(X, len(X))
+            # It is supposed that labels are ordered alphabetically in y_pred
             self.losses.append(sklearn.metrics.log_loss(y, y_pred))
             self.accuracies.append(sklearn.metrics.accuracy_score(y, self.values[np.argmax(y_pred, axis=1)]))
         else:
