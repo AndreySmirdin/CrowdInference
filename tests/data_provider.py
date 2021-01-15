@@ -331,7 +331,7 @@ class SentimentDataProvider(DataProvider):
         gold = pd.read_csv(gold_path)
 
         def get_features(x):
-            return x[1:-1]
+            return np.concatenate([x[1:-1], [1]])
 
         n_features = None
         for _, row in gold.iterrows():
