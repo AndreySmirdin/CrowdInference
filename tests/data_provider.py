@@ -298,7 +298,7 @@ class MushroomsDataProvider(DataProvider):
             self._features[str(i)] += np.random.randn(len(self._features[str(i)])) * 0.5
         self.testX = np.asarray(X)[-test_size:]
         self.testX = np.hstack([self.testX[:, ::2].astype('float'), np.ones((test_size, 1))])
-        self.testX += np.random.randn(*self.testX.shape) * 0.5
+        # self.testX += np.random.randn(*self.testX.shape) * 0.5
         self.testY = np.array(y[-test_size:])
 
         with open(self.SAVE_PATH, 'wb') as f:
@@ -331,7 +331,7 @@ class SentimentDataProvider(DataProvider):
         gold = pd.read_csv(gold_path)
 
         def get_features(x):
-            return x[1:-1:2]
+            return x[1:-1]
 
         n_features = None
         for _, row in gold.iterrows():
