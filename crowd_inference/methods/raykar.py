@@ -47,7 +47,7 @@ class Raykar(WithFeaturesInference):
         self.logit_ = []
         self.mus = []
         self.cls = []
-        self.grads_hist = []
+        self.grads_history = []
 
         for iter in range(max_iter):
             conf_mx = self.calculate_conf_mx(mu, worker_annotations_values, worker_annotations_tasks)
@@ -79,17 +79,17 @@ class Raykar(WithFeaturesInference):
             mu_max = mu.argmax(axis=1)
             for i in range(n_tasks):
                 grads[i] = np.linalg.norm((predictions[i, mu_max[i]] - mu[i, mu_max[i]]) * X[i])
-            self.grads_hist.append(grads)
+            self.grads_history.append(grads)
 
             self.mus.append(mu.copy())
             self.cls.append(predictions.copy())
 
             self.evaluate_classifier(test)
 
-        self.grads_hist = np.array(self.grads_hist)
+        self.grads_history = np.array(self.grads_history)
         self.mus = np.array(self.mus)
         self.cls = np.array(self.cls)
-        self.predictions_ = {t: (self.values[np.argmax(mu[i, :])], mu[i], predictions[i], self.grads_hist[:, i], likelihood[i]) for t, i in
+        self.predictions_ = {t: (self.values[np.argmax(mu[i, :])], mu[i], predictions[i], self.grads_history[:, i], likelihood[i]) for t, i in
                              self.task_to_id.items()}
         self.conf_mx = conf_mx
 

@@ -108,11 +108,11 @@ class DawidSkene(NoFeaturesInference):
 
 
         print(self.priors[-1])
-        print('---------------')
-        for a in annotations:
-            if a.task == 't109':
-                print(a.annotator, conf_mx[self.worker_to_id[a.annotator]][1])
-                print(a.annotator, conf_mx[self.worker_to_id[a.annotator]][2])
+        # print('---------------')
+        # for a in annotations:
+        #     if a.task == 't109':
+        #         print(a.annotator, conf_mx[self.worker_to_id[a.annotator]][1])
+        #         print(a.annotator, conf_mx[self.worker_to_id[a.annotator]][2])
         self.mus = np.array(self.mus)
         self.priors = np.array(self.priors)
 

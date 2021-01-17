@@ -22,7 +22,7 @@ class RaykarPlusDs(WithFeaturesInference):
         self.accuracies = []
 
     def __str__(self):
-        return 'Raykar+DS'
+        return 'Raykar+DS' + ('_binary' if self.binary else '')
 
     def suffix(self):
         return '_rds' + ('_binary' if self.binary else '')

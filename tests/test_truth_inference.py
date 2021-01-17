@@ -25,8 +25,8 @@ class TestTruthInference(unittest.TestCase):
         cls._adults_data = AdultsDataProvider('./resources/datasets/adults/labels.txt',
                                               './resources/datasets/adults/gold.txt')
         cls._music_data = MusicDataProvider()
-        cls._sentiment_data = SentimentDataProvider('./resources/datasets/sentiment_polarity/mturk_answers.csv',
-                                                    './resources/datasets/sentiment_polarity/polarity_gold_lsa_topics.csv')
+        # cls._sentiment_data = SentimentDataProvider('./resources/datasets/sentiment_polarity/mturk_answers.csv',
+        #                                             './resources/datasets/sentiment_polarity/polarity_gold_lsa_topics.csv')
 
 
         cls._ionosphere_data = IonosphereProvider('./resources/datasets/ionosphere/ionosphere.pickle', resample=False,
@@ -60,8 +60,9 @@ class TestTruthInference(unittest.TestCase):
 
     def test_raykar(self):
         raykar = Raykar()
-        self._assert_accuracy(self._mushrooms_data, raykar, 0.91)
-        self._assert_accuracy(self._ionosphere_data, raykar, 0.92)
+        # self._assert_accuracy(self._mushrooms_data, raykar, 0.91)
+        # self._assert_accuracy(self._ionosphere_data, raykar, 0.92)
+        self._assert_accuracy(self._music_data, raykar, 0.92)
         # print(self._get_accuracy(self._sentiment_data, raykar))
 
     def test_raykar_boosting(self):

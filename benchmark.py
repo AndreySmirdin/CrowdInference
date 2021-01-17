@@ -87,8 +87,8 @@ def compare_methods(provider, max_iter=15, confidence_estimator=None, lr=0.1):
     methods = [
         ds.DawidSkene(),
         r.Raykar(),
-        rds.RaykarPlusDs(),
-        # rds.RaykarPlusDs(binary=True),
+        # rds.RaykarPlusDs(),
+        rds.RaykarPlusDs(binary=True),
         # rb.RaykarWithBoosting()
     ]
     points = []
@@ -326,15 +326,17 @@ def run_mv_classifier(dataset, n_classes=2, iters=100, lr=0.1, hard=False):
     accuracies_train, accuracies_test, losses_train, losses_test = [], [], [], []
 
     if hard:
-        mu = np.zeros((len(X_train), n_classes))
+        max_pos = mu.argmax(axis=1)
+        mu[:, :] = 0
         for i, label in enumerate(inference.values):
             mu[y_train == label, i] = 1
+        # for i in range(mu.shape[0]):
+        #     mu[i, max_pos[i]] = 1
 
     for _ in tqdm(range(iters)):
         c.update_w(X, Xs, mu)
         add_accuracy(dataset.test()[0], dataset.test()[1], accuracies_test, losses_test)
         add_accuracy(X_train, y_train, accuracies_train, losses_train)
-
     _, axes = plt.subplots(1, 2, figsize=(12, 6))
 
     axes[0].plot(accuracies_test)
@@ -345,7 +347,7 @@ def run_mv_classifier(dataset, n_classes=2, iters=100, lr=0.1, hard=False):
 
     plt.legend(['Test', 'Train'])
 
-    return accuracies_test[-1]
+    return accuracies_test[-1], max(accuracies_test)
 
 
 def mv_hard(dataset, C=1):
@@ -355,12 +357,12 @@ def mv_hard(dataset, C=1):
     inference.get_annotation_parameters(dataset.labels())
     mu = inference.get_majority_vote_probs(dataset.labels())
     print(mu[:15])
-    reg = LogisticRegression(fit_intercept=False, C=C).fit(X_train, mu.argmax(1))
+    reg = LogisticRegression(fit_intercept=False, C=C).fit(X_train, y_train)
 
     X_test, y_test = dataset.test()
     print(y_test)
     print(reg.predict(X_test))
-    print(accuracy_score(y_train, inference.values[reg.predict(X_train)]))
-    return accuracy_score(y_test, inference.values[reg.predict(X_test)])
-    # print(accuracy_score(y_train, reg.predict(X_train)))
-    # return accuracy_score(y_test, reg.predict(X_test))
+    # print(accuracy_score(y_train, inference.values[reg.predict(X_train)]))
+    # return accuracy_score(y_test, inference.values[reg.predict(X_test)])
+    print(accuracy_score(y_train, reg.predict(X_train)))
+    return accuracy_score(y_test, reg.predict(X_test))

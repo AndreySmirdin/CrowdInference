@@ -26,13 +26,15 @@ class Classifier:
         predictions = self.get_predictions(X, n_tasks)
         g = np.zeros_like(self.w)
         if self.n_classes == 2:
-            for i in range(n_tasks):
-                g += (mu[i, 0] - predictions[i, 0]) * X[i]
+            # for i in range(n_tasks):
+            #     g += (mu[i, 0] - predictions[i, 0]) * X[i]
+            g = (predictions[:, 0] - mu[:, 0]) @ X
 
-            H = np.zeros((self.n_features, self.n_features))
-            for i in range(n_tasks):
-                x = X[i].reshape(1, -1)
-                H -= predictions[i, 0] * predictions[i, 1] * x.T @ x
+            # H = np.zeros((self.n_features, self.n_features))
+            # for i in range(n_tasks):
+            #     x = X[i].reshape(1, -1)
+            #     H -= predictions[i, 0] * predictions[i, 1] * x.T @ x
+            H = (predictions[:, 0] * predictions[:, 1]) * X.T @ X
             inv = np.linalg.pinv(H)
             self.w -= self.lr * inv @ g
         else:
