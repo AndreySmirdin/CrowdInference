@@ -107,7 +107,12 @@ class WithFeaturesInference(TruthInference):
             y_pred = self.classifier.get_predictions(X, len(X))
             # It is supposed that labels are ordered alphabetically in y_pred
             self.losses.append(sklearn.metrics.log_loss(y, y_pred))
-            self.accuracies.append(sklearn.metrics.accuracy_score(y, self.values[np.argmax(y_pred, axis=1)]))
+            if len(self.values) == 2:
+                # self.accuracies.append(sklearn.metrics.roc_auc_score(y, y_pred[:, 1]))
+                self.accuracies.append(sklearn.metrics.accuracy_score(y, self.values[np.argmax(y_pred, axis=1)]))
+
+            else:
+                self.accuracies.append(sklearn.metrics.accuracy_score(y, self.values[np.argmax(y_pred, axis=1)]))
         else:
             self.losses.append(0)
             self.accuracies.append(0)

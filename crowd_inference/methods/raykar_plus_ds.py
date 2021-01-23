@@ -1,7 +1,5 @@
 from typing import Iterable, Dict
 
-import scipy
-
 from crowd_inference.methods.classifier import Classifier
 from crowd_inference.model.annotation import Annotation
 from crowd_inference.model.estimation import Estimation
@@ -45,17 +43,8 @@ class RaykarPlusDs(WithFeaturesInference):
 
         Xs = X.T.dot(X)
 
-        # datasets = np.random.randint(0, n_tasks, (n_cls, n_tasks // 2))
-        # X_boosted = np.zeros((n_cls, n_tasks // 2, n_features))
-        # Xs_boosted = []
-        # for i in range(n_cls):
-        #     X_boosted[i] = X[datasets[i]]
-        #     Xs_boosted.append(X_boosted[i].T.dot(X_boosted[i]))
-        
         self.classifier = Classifier(n_features, n_values, lr)
-        # self.classifiers = [Classifier(n_features, n_values, lr) for _ in range(n_cls)]
 
-        # l = np.random.uniform(size=n_tasks)
         l = np.zeros(n_tasks)
         mu = self.get_majority_vote_probs(annotations)
         prior = np.zeros(n_values)
@@ -74,20 +63,11 @@ class RaykarPlusDs(WithFeaturesInference):
                 prior[j] = np.sum(mu[:, j]) / n_tasks
 
             self.classifier.update_w(X, Xs, mu)
-            # for i, classifier in enumerate(self.classifiers):
-            #     classifier.update_w(X_boosted[i], Xs_boosted[i], mu[datasets[i]])
 
             likelihood = self.calculate_likelihoods(conf_mx, worker_annotations_values, worker_annotations_tasks)
             predictions = self.classifier.get_predictions(X, n_tasks)
 
-            # predictions_other = np.zeros((n_cls, n_tasks, n_values))
-            # for i in range(n_cls):
-            #     predictions_other[i] = self.classifiers[i].get_predictions(X, n_tasks)
-
-            grads = np.zeros(n_tasks)
-            mu_max = mu.argmax(axis=1)
-            for i in range(n_tasks):
-                grads[i] = np.linalg.norm((predictions[i, mu_max[i]] - mu[i, mu_max[i]]) * X[i])
+            grads = np.linalg.norm((1 - predictions.max(axis=1))[:, None] * X, axis=1) ** 2
 
             if not self.binary:
                 if confidence_estimator is None:
@@ -100,8 +80,7 @@ class RaykarPlusDs(WithFeaturesInference):
             else:
                 for i in range(n_tasks):
                     l[i] = 1 if (likelihood[i, :] * predictions[i, :]).sum() > (
-                                likelihood[i, :] * prior).sum() else 0
-            # l[:] = 1 - (predictions_other[:, :, 0].max(axis=0) - predictions_other[:, :, 0].min(axis=0)) * 2
+                            likelihood[i, :] * prior).sum() else 0
 
             for i in range(n_tasks):
                 for j in range(n_values):
@@ -132,8 +111,9 @@ class RaykarPlusDs(WithFeaturesInference):
         self.weights = np.array(self.weights)
 
         self.predictions_ = {t: (
-        self.values[np.argmax(mu[i, :])], mu[i], predictions[i], grads[i], likelihood[i], l[i], (l[i], 1 - l[i]), i) for
-                             t, i in self.task_to_id.items()}
+            self.values[np.argmax(mu[i, :])], mu[i], predictions[i], grads[i], likelihood[i], l[i], (l[i], 1 - l[i]), i)
+            for
+            t, i in self.task_to_id.items()}
         print(f'Average Raykar weight is {l.mean()}')
         self.conf_mx = conf_mx
 

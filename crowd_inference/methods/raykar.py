@@ -75,10 +75,11 @@ class Raykar(WithFeaturesInference):
             if iter % (max_iter // 5) == 0:
                 print(f'Iter {iter:02}, logit: {loglike:.6f}')
 
-            grads = np.zeros(n_tasks)
-            mu_max = mu.argmax(axis=1)
-            for i in range(n_tasks):
-                grads[i] = np.linalg.norm((predictions[i, mu_max[i]] - mu[i, mu_max[i]]) * X[i])
+            # print(predictions.max())
+            grads = np.linalg.norm((1 - predictions.max(axis=1))[:, None] * X, axis=1) ** 2
+            # mu_max = mu.argmax(axis=1)
+            # for i in range(n_tasks):
+            #     grads[i] = np.linalg.norm((predictions[i]) * X[i]) ** 2
             self.grads_history.append(grads)
 
             self.mus.append(mu.copy())

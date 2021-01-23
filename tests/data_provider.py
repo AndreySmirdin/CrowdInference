@@ -10,7 +10,7 @@ from typing import Iterable, Dict, List, Optional, Tuple
 import sklearn
 from sklearn import preprocessing
 from sklearn.datasets import load_svmlight_file
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from crowd_inference.model.annotation import Annotation
 from crowd_inference.model.estimation import Estimation
@@ -300,8 +300,8 @@ class SentimentDataProvider(DataProvider):
 
         features = np.array(features)
         print(features.shape)
-        scaler = MinMaxScaler().fit(features)
-        # features = scaler.transform(features)
+        scaler = StandardScaler().fit(features)
+        features = scaler.transform(features)
         features = np.hstack([features, np.ones((len(features), 1))])
         for i, e in enumerate(self._sentiment_gold):
             self._features[e.task] = features[i]
@@ -317,7 +317,7 @@ class SentimentDataProvider(DataProvider):
             features = get_features(row.values)
             self.X[i] = features
             self.y.append(row.values[-1])
-        # self.X = scaler.transform(self.X)
+        self.X = scaler.transform(self.X)
         self.X = np.hstack([self.X, np.ones((len(self.X), 1))])
 
         self.y = np.array(self.y)
@@ -413,7 +413,7 @@ class CovTypeDataProvider(DataProvider):
             return
 
         ds = sklearn.datasets.fetch_covtype()
-        X, y = ds['data'][::each_nth], ds['target'][::each_nth]
+        X, y = ds['data'][::each_nth, ::6], ds['target'][::each_nth]
         X = np.hstack([X, np.ones((X.shape[0], 1))]).astype('float')
 
         a = 2

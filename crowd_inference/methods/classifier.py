@@ -11,10 +11,12 @@ def softmax(z):
 
 
 class Classifier:
-    def __init__(self, n_features, n_classes, lr):
+    def __init__(self, n_features, n_classes, lr, C=1):
         self.n_features = n_features
         self.n_classes = n_classes
         self.lr = lr
+        self.reg = np.eye(n_features) * C
+        print(self.reg[0, 0])
 
         if n_classes == 2:
             self.w = np.zeros(n_features)
@@ -24,24 +26,24 @@ class Classifier:
     def update_w(self, X, Xs, mu):
         n_tasks = len(X)
         predictions = self.get_predictions(X, n_tasks)
-        g = np.zeros_like(self.w)
         if self.n_classes == 2:
             # for i in range(n_tasks):
             #     g += (mu[i, 0] - predictions[i, 0]) * X[i]
-            g = (predictions[:, 0] - mu[:, 0]) @ X
+            g = (predictions[:, 0] - mu[:, 0]) @ X + self.reg @ self.w
 
             # H = np.zeros((self.n_features, self.n_features))
             # for i in range(n_tasks):
             #     x = X[i].reshape(1, -1)
             #     H -= predictions[i, 0] * predictions[i, 1] * x.T @ x
-            H = (predictions[:, 0] * predictions[:, 1]) * X.T @ X
+            H = (predictions[:, 0] * predictions[:, 1]) * X.T @ X + self.reg
             inv = np.linalg.pinv(H)
             self.w -= self.lr * inv @ g
         else:
-            invH = np.linalg.pinv(Xs * np.sum(predictions.T.dot(1 - predictions)))
+            # invH = np.linalg.pinv(Xs * np.sum(predictions.T.dot(1 - predictions)))
             grad = (predictions - mu).T.dot(X)
             # print(predictions[-3:])
-            self.w -= grad.dot(invH) * self.lr
+            # self.w -= grad.dot(invH) * self.lr
+            self.w -= grad * self.lr
             # print(np.abs(grad.dot(invH)).sum())
             # print(self.w)
 

@@ -16,6 +16,7 @@ from sklearn.metrics import accuracy_score, log_loss
 from sklearn.linear_model import LinearRegression, LogisticRegression
 import matplotlib.pyplot as plt
 import tests.data_provider as data
+from statsmodels.stats.proportion import proportion_confint
 from tqdm.auto import tqdm
 from typing import Iterable, Dict, List, Optional, Tuple
 
@@ -36,6 +37,7 @@ def features2np(provider: data.DataProvider) -> Tuple[np.ndarray, np.ndarray]:
 def get_classifier_accuracy(inference: WithFeaturesInference, data_provider: data.DataProvider):
     X, y = features2np(data_provider)
     classification = inference.apply_classifier(X)
+    # print(classification[:10], y[:10])
     accuracy = accuracy_score(y, classification)
     print(f'Classifier train accuracy is {accuracy}')
 
@@ -87,8 +89,8 @@ def compare_methods(provider, max_iter=15, confidence_estimator=None, lr=0.1):
     methods = [
         ds.DawidSkene(),
         r.Raykar(),
-        # rds.RaykarPlusDs(),
-        rds.RaykarPlusDs(binary=True),
+        rds.RaykarPlusDs(),
+        # rds.RaykarPlusDs(binary=True),
         # rb.RaykarWithBoosting()
     ]
     points = []
@@ -188,76 +190,106 @@ def plots_for_point(points, data, methods, k):
                 'Raykar weight'])
 
 
-def build_grad_hist(data, methods, points, name, n_bucket=100):
+def get_rnd_cls_accuracy(data, method):
+    values = np.array(method.values)
+    gold = np.array([g.value for g in data.gold()])
+
+    accuracies = []
+    for value in values:
+        accuracies.append((value == gold).mean())
+    accuracies = np.array(accuracies)
+    print(accuracies)
+    print((accuracies ** 2).sum())
+    return (accuracies ** 2).sum()
+
+
+def build_grad_hist(data, methods, points, name, n_bucket=100, train=True):
     gold_dict = {e.task: e.value for e in data.gold()}
 
-    fig = plt.figure(figsize=(11, 9))
+    fig = plt.figure(figsize=(11, 13))
     ax = fig.subplots(nrows=2, ncols=1)
-    print(f'Number of data points: {len(points)}')
 
     buckets = []
     confidences = []
-
-    wrong, correct = [], []
-
     for method in [1]:
         result = []
-        buckets.append([])
-        for _, p in points.iterrows():
-            flipped = False
-            #             if  method == 2:
-            #                 clazz = np.argmax(p.classifier_rds)
-            #                 grad = np.abs(p.grad_rds)
-            #             elif method == 1:
-            grad = np.abs(p.grad_r[-1])
-            flipped = np.argmax(p.mu_r) != np.argmax(p.conf_mx_r)
+        if train:
+            for _, p in points.iterrows():
+                grad = p.grad_r[-1]
+                flipped = np.argmax(p.mu_r) != np.argmax(p.conf_mx_r)
 
-            if np.argmax(p.classifier_r) == methods[method].value_to_id[gold_dict[p.task]]:
-                if flipped:
-                    correct.append(p)
-                result.append([grad, True, flipped, False])
-            else:
-                if flipped:
-                    wrong.append(p)
-                result.append([grad, False, False, flipped])
+                if np.argmax(p.classifier_r) == methods[method].value_to_id[gold_dict[p.task]]:
+                    result.append([grad, True, flipped, False])
+                else:
+                    result.append([grad, False, False, flipped])
+
+        else:
+            X, y = data.test()
+            predictions = methods[1].classifier.get_predictions(X, len(X))
+            grads = np.linalg.norm((1 - predictions.max(axis=1))[:, None] * X, axis=1) ** 2
+            for i in range(len(X)):
+                if y[i] == methods[method].values[np.argmax(predictions[i])]:
+                    result.append([grads[i], True, False, False])
+                else:
+                    result.append([grads[i], False, False, False])
+            points = X
+
+        print(f'Number of data points: {len(points)}')
 
         result = np.array(sorted(result))
 
         n = int(np.ceil(len(points) / n_bucket))
         xs = []
         widths = []
-        heights_accuracy = []
+        successes, totals = [], []
         heights_flipped_good, heights_flipped_bad = [], []
         for i in range(n):
             cur_points = result[n_bucket * i: min(n_bucket * (i + 1), len(points))]
             xs.append((cur_points[0, 0] + cur_points[-1, 0]) * 0.5)
             widths.append((cur_points[-1, 0] - cur_points[0, 0]))
-            heights_accuracy.append(cur_points[:, 1].sum() / len(cur_points))
+            successes.append(cur_points[:, 1].sum())
+            totals.append(len(cur_points))
             heights_flipped_good.append(cur_points[:, 2].sum() / len(cur_points))
             heights_flipped_bad.append(cur_points[:, 3].sum() / len(cur_points))
 
-            buckets[-1].append(cur_points[:, 0])
+            buckets.append(cur_points[:, 0])
 
         xs = np.array(xs)
         widths = np.array(widths)
-
-        ax[method - 1].bar(xs, height=heights_accuracy, width=widths)
-        #         print(heights_flipped)
-
+        successes, totals = np.array(successes), np.array(totals)
+        heights_accuracy = successes / totals
+        conf_intervals = []
+        for s, t in zip(successes, totals):
+            low, up = proportion_confint(s, t)
+            conf_intervals.append((up - low) * 0.5)
+        rnd_accuracy = get_rnd_cls_accuracy(data, methods[0])
+        ax[0].bar(xs, height=heights_accuracy, yerr=conf_intervals, width=widths)
+        ax[0].set_xlabel('Градиент')
+        ax[0].set_ylabel('Точность классификатора')
+        ax[0].plot(xs, [rnd_accuracy] * len(widths), 'red')
+        ax[0].legend(['Random classifier'])
+        print(heights_accuracy)
+        print(widths)
+        print(result[:5, 0])
         flipped_widths = widths / 2
         ax[1].bar(xs - flipped_widths / 2, height=heights_flipped_good, width=flipped_widths)
         ax[1].bar(xs + flipped_widths / 2, height=heights_flipped_bad, width=flipped_widths)
 
-        ax[method - 1].set_title(name + " Точность работы классификатора в зависимости от градиента")
+        ax[method - 1].set_title("Точность работы классификатора в зависимости от градиента")
         ax[method].set_title(name + " Классификатор изменил самый вероятный класс")
         ax[method].legend(['Изменил на правильный', 'Изменил на неправильный'])
 
         confidences.append(heights_accuracy)
 
-    return buckets, confidences, wrong, correct
+    return buckets, heights_accuracy, result[-1, 0], rnd_accuracy
 
 
-def get_confidence(buckets, confidences):
+def get_confidence(buckets, confidences, rnd_accuracy):
+    for i in range(len(confidences)):
+        n = len(buckets[i])
+        confidences[i] = \
+            1 - (np.random.binomial(1, p=confidences[i], size=(10000, n)).sum(axis=1) <= n * rnd_accuracy).mean()
+
     def get_confidence_binded(x):
         x = np.abs(x)
         for i in range(len(confidences) - 1):
@@ -307,9 +339,9 @@ def plot_all_gradients(pts1, pts2, name):
         plt.plot(g, color='blue', linewidth=1)
 
 
-def run_mv_classifier(dataset, n_classes=2, iters=100, lr=0.1, hard=False):
+def run_mv_classifier(dataset, n_classes=2, iters=100, lr=0.1, C=1, hard=False):
     X_train, y_train = features2np(dataset)
-    c = cls.Classifier(n_features=X_train.shape[1], n_classes=n_classes, lr=lr)
+    c = cls.Classifier(n_features=X_train.shape[1], n_classes=n_classes, lr=lr, C=C)
 
     inference = TruthInference()
     inference.get_annotation_parameters(dataset.labels())
