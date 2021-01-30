@@ -3,8 +3,6 @@ import pandas as pd
 
 import random
 
-import sklearn
-
 import crowd_inference.methods.dawid_skene as ds
 import crowd_inference.methods.raykar as r
 import crowd_inference.methods.raykar_boosting as rb
@@ -13,10 +11,9 @@ import crowd_inference.methods.classifier as cls
 
 from crowd_inference.truth_inference import NoFeaturesInference, TruthInference, WithFeaturesInference
 from sklearn.metrics import accuracy_score, log_loss
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LogisticRegression
 import matplotlib.pyplot as plt
 import tests.data_provider as data
-from statsmodels.stats.proportion import proportion_confint
 from tqdm.auto import tqdm
 from typing import Iterable, Dict, List, Optional, Tuple
 
@@ -37,7 +34,6 @@ def features2np(provider: data.DataProvider) -> Tuple[np.ndarray, np.ndarray]:
 def get_classifier_accuracy(inference: WithFeaturesInference, data_provider: data.DataProvider):
     X, y = features2np(data_provider)
     classification = inference.apply_classifier(X)
-    # print(classification[:10], y[:10])
     accuracy = accuracy_score(y, classification)
     print(f'Classifier train accuracy is {accuracy}')
 
@@ -48,7 +44,7 @@ def get_classifier_accuracy(inference: WithFeaturesInference, data_provider: dat
 
 
 def get_accuracy(provider: data.DataProvider, inference: TruthInference, max_iter: int, confidence_estimator,
-                 lr: float):
+                 lr: float, axes):
     correct = []
     incorrect = []
     accepted = 0
@@ -61,8 +57,8 @@ def get_accuracy(provider: data.DataProvider, inference: TruthInference, max_ite
         inference.fit(provider.labels(), provider.features(), max_iter=max_iter, lr=lr, test=provider.test())
         get_classifier_accuracy(inference, provider)
     else:
-        inference.fit(provider.labels(), provider.features(), max_iter=max_iter,
-                      confidence_estimator=confidence_estimator, lr=lr, test=provider.test())
+        inference.fit(provider.labels(), provider.features(), data=provider, max_iter=max_iter,
+                      confidence_estimator=confidence_estimator, lr=lr, test=provider.test(), axes=axes)
         get_classifier_accuracy(inference, provider)
 
     for estimate in inference.estimate():
@@ -90,21 +86,20 @@ def compare_methods(provider, max_iter=15, confidence_estimator=None, lr=0.1):
         ds.DawidSkene(),
         r.Raykar(),
         rds.RaykarPlusDs(),
-        # rds.RaykarPlusDs(binary=True),
         # rb.RaykarWithBoosting()
     ]
     points = []
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig, axes = plt.subplots(4, 2, figsize=(14, 24))
     test_stats = []
 
     for method in methods:
-        accuracy, correct, incorrect = get_accuracy(provider, method, max_iter, confidence_estimator, lr)
+        accuracy, correct, incorrect = get_accuracy(provider, method, max_iter, confidence_estimator, lr, axes[1:])
         results.append((method.__str__(), accuracy))
-        axes[0].plot(method.logit_)
+        axes[0, 0].plot(method.logit_)
         if method.__str__() != 'DS':
-            axes[1].plot(method.losses)
-            axes[1].plot(method.accuracies)
+            axes[0, 1].plot(method.losses)
+            axes[0, 1].plot(method.accuracies)
             test_stats.append(str(method) + ' loss')
             test_stats.append(str(method) + ' accuracy')
         points_results.append((correct, incorrect))
@@ -140,8 +135,8 @@ def compare_methods(provider, max_iter=15, confidence_estimator=None, lr=0.1):
 
     print(results)
 
-    axes[0].legend(list(map(str, methods)))
-    axes[1].legend(test_stats)
+    axes[0][0].legend(list(map(str, methods)))
+    axes[0][1].legend(test_stats)
 
     # Get points advantages
     advantages = []
@@ -190,16 +185,13 @@ def plots_for_point(points, data, methods, k):
                 'Raykar weight'])
 
 
-def get_rnd_cls_accuracy(data, method):
-    values = np.array(method.values)
-    gold = np.array([g.value for g in data.gold()])
-
+def get_rnd_cls_accuracy(labels):
+    values = np.unique(labels)
     accuracies = []
     for value in values:
-        accuracies.append((value == gold).mean())
+        accuracies.append((value == labels).mean())
     accuracies = np.array(accuracies)
-    print(accuracies)
-    print((accuracies ** 2).sum())
+    print(f'True labels distribution {accuracies}')
     return (accuracies ** 2).sum()
 
 
@@ -209,95 +201,53 @@ def build_grad_hist(data, methods, points, name, n_bucket=100, train=True):
     fig = plt.figure(figsize=(11, 13))
     ax = fig.subplots(nrows=2, ncols=1)
 
-    buckets = []
-    confidences = []
-    for method in [1]:
-        result = []
-        if train:
-            for _, p in points.iterrows():
-                grad = p.grad_r[-1]
-                flipped = np.argmax(p.mu_r) != np.argmax(p.conf_mx_r)
+    predictions = []
+    ground_truth_ids = []
+    grads = []
+    if train:
+        for _, p in points.iterrows():
+            grads.append(p.grad_r[-1])
+            predictions.append(p.classifier_r)
+            ground_truth_ids.append(methods[1].value_to_id[gold_dict[p.task]])
 
-                if np.argmax(p.classifier_r) == methods[method].value_to_id[gold_dict[p.task]]:
-                    result.append([grad, True, flipped, False])
-                else:
-                    result.append([grad, False, False, flipped])
+    else:
+        pass
 
-        else:
-            X, y = data.test()
-            predictions = methods[1].classifier.get_predictions(X, len(X))
-            grads = np.linalg.norm((1 - predictions.max(axis=1))[:, None] * X, axis=1) ** 2
-            for i in range(len(X)):
-                if y[i] == methods[method].values[np.argmax(predictions[i])]:
-                    result.append([grads[i], True, False, False])
-                else:
-                    result.append([grads[i], False, False, False])
-            points = X
+    print(f'Number of data points: {len(points)}')
+    grads = np.array(grads)
+    predictions = np.array(predictions)
 
-        print(f'Number of data points: {len(points)}')
+    buckets = rds.RaykarPlusDs.build_gradient_buckets(ground_truth_ids, grads, predictions, n_bucket)
+    rnd_accuracy = get_rnd_cls_accuracy(ground_truth_ids)
+    plot_gradient_buckets(ax[0], buckets, rnd_accuracy)
+    ax[0].set_title("Точность работы классификатора в зависимости от градиента")
+    # print(bucket_accuracies)
+    # print(bucket_widths)
+    # print(result[:5, 0])
+    # flipped_widths = widths / 2
+    # ax[1].bar(xs - flipped_widths / 2, height=heights_flipped_good, width=flipped_widths)
+    # ax[1].bar(xs + flipped_widths / 2, height=heights_flipped_bad, width=flipped_widths)
+    # ax[1].set_title(name + " Классификатор изменил самый вероятный класс")
+    # ax[1].legend(['Изменил на правильный', 'Изменил на неправильный'])
 
-        result = np.array(sorted(result))
-
-        n = int(np.ceil(len(points) / n_bucket))
-        xs = []
-        widths = []
-        successes, totals = [], []
-        heights_flipped_good, heights_flipped_bad = [], []
-        for i in range(n):
-            cur_points = result[n_bucket * i: min(n_bucket * (i + 1), len(points))]
-            xs.append((cur_points[0, 0] + cur_points[-1, 0]) * 0.5)
-            widths.append((cur_points[-1, 0] - cur_points[0, 0]))
-            successes.append(cur_points[:, 1].sum())
-            totals.append(len(cur_points))
-            heights_flipped_good.append(cur_points[:, 2].sum() / len(cur_points))
-            heights_flipped_bad.append(cur_points[:, 3].sum() / len(cur_points))
-
-            buckets.append(cur_points[:, 0])
-
-        xs = np.array(xs)
-        widths = np.array(widths)
-        successes, totals = np.array(successes), np.array(totals)
-        heights_accuracy = successes / totals
-        conf_intervals = []
-        for s, t in zip(successes, totals):
-            low, up = proportion_confint(s, t)
-            conf_intervals.append((up - low) * 0.5)
-        rnd_accuracy = get_rnd_cls_accuracy(data, methods[0])
-        ax[0].bar(xs, height=heights_accuracy, yerr=conf_intervals, width=widths)
-        ax[0].set_xlabel('Градиент')
-        ax[0].set_ylabel('Точность классификатора')
-        ax[0].plot(xs, [rnd_accuracy] * len(widths), 'red')
-        ax[0].legend(['Random classifier'])
-        print(heights_accuracy)
-        print(widths)
-        print(result[:5, 0])
-        flipped_widths = widths / 2
-        ax[1].bar(xs - flipped_widths / 2, height=heights_flipped_good, width=flipped_widths)
-        ax[1].bar(xs + flipped_widths / 2, height=heights_flipped_bad, width=flipped_widths)
-
-        ax[method - 1].set_title("Точность работы классификатора в зависимости от градиента")
-        ax[method].set_title(name + " Классификатор изменил самый вероятный класс")
-        ax[method].legend(['Изменил на правильный', 'Изменил на неправильный'])
-
-        confidences.append(heights_accuracy)
-
-    return buckets, heights_accuracy, result[-1, 0], rnd_accuracy
+    return buckets, None, rnd_accuracy
 
 
-def get_confidence(buckets, confidences, rnd_accuracy):
-    for i in range(len(confidences)):
-        n = len(buckets[i])
-        confidences[i] = \
-            1 - (np.random.binomial(1, p=confidences[i], size=(10000, n)).sum(axis=1) <= n * rnd_accuracy).mean()
+def plot_gradient_buckets(ax, buckets, rnd_accuracy, ds_accuracy=None):
+    bucket_centers = list(map(lambda b: b.center, buckets))
+    bucket_accuracies = list(map(lambda b: b.accuracy, buckets))
+    bucket_conf_intervals = list(map(lambda b: b.conf_interval, buckets))
+    bucket_widths = list(map(lambda b: b.width, buckets))
 
-    def get_confidence_binded(x):
-        x = np.abs(x)
-        for i in range(len(confidences) - 1):
-            if x < buckets[i][-1]:
-                return confidences[i]
-        return confidences[-1]
-
-    return get_confidence_binded
+    ax.bar(bucket_centers, height=bucket_accuracies, yerr=bucket_conf_intervals, width=bucket_widths)
+    ax.set_xlabel('Градиент')
+    ax.set_ylabel('Точность классификатора')
+    legend = ['Random classifier']
+    ax.plot(bucket_centers, [rnd_accuracy] * len(bucket_widths), 'red')
+    if ds_accuracy is not None:
+        ax.plot(bucket_centers, [ds_accuracy] * len(bucket_widths), 'green')
+        legend.append('DS classifier')
+    ax.legend(legend)
 
 
 def plot_flips(correct, wrong, name, dataset_name, l1, l2):

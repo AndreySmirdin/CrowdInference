@@ -17,19 +17,23 @@ class Classifier:
         self.lr = lr
         self.reg = np.eye(n_features) * C
         print(self.reg[0, 0])
+        self.X = None
+        self.Xs = None
 
         if n_classes == 2:
             self.w = np.zeros(n_features)
         else:
             self.w = np.zeros((n_classes, n_features))
 
-    def update_w(self, X, Xs, mu):
-        n_tasks = len(X)
-        predictions = self.get_predictions(X, n_tasks)
+    def update_w(self, X, mu):
+        if self.X is None:
+            self.X = X
+            self.Xs = X.T.dot(X)
+
+        n_tasks = len(self.X)
+        predictions = self.get_predictions(self.X, n_tasks)
         if self.n_classes == 2:
-            # for i in range(n_tasks):
-            #     g += (mu[i, 0] - predictions[i, 0]) * X[i]
-            g = (predictions[:, 0] - mu[:, 0]) @ X + self.reg @ self.w
+            g = (predictions[:, 0] - mu[:, 0]) @ self.X + self.reg @ self.w
 
             # H = np.zeros((self.n_features, self.n_features))
             # for i in range(n_tasks):
@@ -44,8 +48,6 @@ class Classifier:
             # print(predictions[-3:])
             # self.w -= grad.dot(invH) * self.lr
             self.w -= grad * self.lr
-            # print(np.abs(grad.dot(invH)).sum())
-            # print(self.w)
 
     def get_predictions(self, X, n_tasks):
         if self.n_classes > 2:

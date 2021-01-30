@@ -8,7 +8,8 @@ from crowd_inference.methods.raykar_boosting import RaykarWithBoosting
 from crowd_inference.methods.raykar_plus_ds import RaykarPlusDs
 from crowd_inference.truth_inference import NoFeaturesInference, TruthInference, WithFeaturesInference
 from .data_provider import SimpleGeneratedDataProvider, RelDataProvider, AdultsDataProvider, DataProvider, \
-    MusicDataProvider, SentimentDataProvider, IonosphereProvider, MushroomsDataProvider, TolokaDataProvider
+    MusicDataProvider, SentimentDataProvider, IonosphereProvider, MushroomsDataProvider, TolokaDataProvider, \
+    CovTypeDataProvider
 
 
 class TestTruthInference(unittest.TestCase):
@@ -34,6 +35,7 @@ class TestTruthInference(unittest.TestCase):
                                                  flip_probs=flip_probs,
                                                  annotate_prob=annotate_prob)
         cls._toloka_data = TolokaDataProvider()
+        cls._cov_data = CovTypeDataProvider(resample=False, flip_probs=flip_probs, annotate_prob=0.7)
         # print(len(cls._ionosphere_data.labels()), len(cls._ionosphere_data.gold()))
 
     def test_majority_vote(self):
@@ -69,6 +71,10 @@ class TestTruthInference(unittest.TestCase):
         raykar = RaykarWithBoosting()
         self._assert_accuracy(self._mushrooms_data, raykar, 0.91)
         self._assert_accuracy(self._ionosphere_data, raykar, 0.92)
+
+    def test_rds(self):
+        rds = RaykarPlusDs()
+        rds.fit(self._cov_data.labels(), self._cov_data.features(), data=self._cov_data, max_iter=10)
 
     def test_ionosphere(self):
         raykar = Raykar()

@@ -38,7 +38,6 @@ class Raykar(WithFeaturesInference):
         X = np.zeros((n_tasks, n_features))
         for k, v in features.items():
             X[self.task_to_id[k]] = v
-        Xs = X.T.dot(X)
 
         self.classifier = Classifier(n_features, n_values, lr)
 
@@ -52,7 +51,7 @@ class Raykar(WithFeaturesInference):
         for iter in range(max_iter):
             conf_mx = self.calculate_conf_mx(mu, worker_annotations_values, worker_annotations_tasks)
 
-            self.classifier.update_w(X, Xs, mu)
+            self.classifier.update_w(X, mu)
 
             likelihood = self.calculate_likelihoods(conf_mx, worker_annotations_values, worker_annotations_tasks)
             predictions = self.classifier.get_predictions(X, n_tasks)
