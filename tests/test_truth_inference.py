@@ -23,8 +23,7 @@ class TestTruthInference(unittest.TestCase):
         annotate_prob = 0.7
         # cls._mushrooms_data = MushroomsDataProvider(resample=False, flip_probs=flip_probs, annotate_prob=annotate_prob)
         cls._rel_data = RelDataProvider('./resources/datasets/rel/trec-rf10-data.txt')
-        cls._adults_data = AdultsDataProvider('./resources/datasets/adults/labels.txt',
-                                              './resources/datasets/adults/gold.txt')
+        cls._adults_data = AdultsDataProvider()
         cls._music_data = MusicDataProvider()
         # cls._sentiment_data = SentimentDataProvider('./resources/datasets/sentiment_polarity/mturk_answers.csv',
         #                                             './resources/datasets/sentiment_polarity/polarity_gold_lsa_topics.csv')
@@ -84,9 +83,9 @@ class TestTruthInference(unittest.TestCase):
 
     def test_raykar_plus_ds(self):
         raykar_plus_ds = RaykarPlusDs()
-        self._assert_accuracy(self._ionosphere_data, raykar_plus_ds, 0.71)
+        self._assert_accuracy(self._ionosphere_data, raykar_plus_ds, 0.87)
 
-        self._get_classifier_accuracy(raykar_plus_ds, self._ionosphere_data)
+        # self._get_classifier_accuracy(raykar_plus_ds, self._ionosphere_data)
 
     def test_compare_on_ionosphere(self):
         results = []
@@ -114,7 +113,7 @@ class TestTruthInference(unittest.TestCase):
         estimates = {}
 
         if isinstance(inference, WithFeaturesInference):
-            inference.fit(provider.labels(), provider.features())
+            inference.fit(provider.labels(), provider.features(), data=provider)
         elif isinstance(inference, NoFeaturesInference):
             inference.fit(provider.labels())
 

@@ -1,7 +1,6 @@
-import bisect
 from typing import Iterable, Dict, List
 
-from scipy.stats import binom
+from scipy.stats import beta
 from statsmodels.stats.proportion import proportion_confint
 
 from benchmark import get_rnd_cls_accuracy
@@ -17,7 +16,8 @@ from tests.data_provider import DataProvider
 
 
 class GradientBucket:
-    def __init__(self, grads, correctness):
+    def __init__(self, n, prior_weight, prior_accuracy, grads, correctness, predictions, mu):
+        self.n = n
         self.center = (grads[0] + grads[-1]) * 0.5
         self.width = grads[-1] - grads[0]
         self.right_end = self.center + self.width * 0.5
@@ -26,6 +26,16 @@ class GradientBucket:
         self.accuracy = self.correct / self.size
         low, up = proportion_confint(self.correct, self.size)
         self.conf_interval = (up - low) * 0.5
+        self.votes = np.zeros(predictions.shape[1])
+        self.prior = mu.sum(axis=0) / self.size
+        for i in range(len(self.votes)):
+            self.votes[i] = (predictions.argmax(axis=1) == i).sum()
+        self.random_accuracy = (self.prior ** 2).sum()
+        prior_weight *= self.size
+        a = prior_weight * prior_accuracy + self.correct + 1
+        b = prior_weight * (1 - prior_accuracy) + (self.size - self.correct) + 1
+        self.raykar_weight = beta.sf(self.random_accuracy, a, b)
+        self.posterior_expectation = a / (a + b)
 
 
 class RaykarPlusDs(WithFeaturesInference):
@@ -48,7 +58,8 @@ class RaykarPlusDs(WithFeaturesInference):
         return [Estimation(task, val[0]) for task, val in self.predictions_.items()]
 
     def fit(self, annotations: Iterable[Annotation], features: Dict[str, np.ndarray], data: DataProvider = None,
-            max_iter=200, lr=0.1, confidence_estimator=None, n_bucket=None, test=None, axes=None):
+            max_iter=200, lr=0.1, confidence_estimator=None, n_bucket=None, test=None, axes=None, look_in_data=True,
+            prior_weight=0, prior_accuracy=1):
         self.get_annotation_parameters(annotations)
 
         n_tasks = len(self.tasks)
@@ -75,9 +86,11 @@ class RaykarPlusDs(WithFeaturesInference):
         self.conf_mxs = []
         self.priors = []
 
-        ground_truth_ids = self.get_ground_truth_ids(data)
-        rnd_accuracy = get_rnd_cls_accuracy(ground_truth_ids)
-        # rnd_accuracy = 0.6
+        ground_truth_ids = None
+        if look_in_data:
+            ground_truth_ids = self.get_ground_truth_ids(data)
+        rnd_accuracy = get_rnd_cls_accuracy(list(map(lambda x: x.value, data.gold())))
+        # rnd_accuracy = 0.8
 
         for iter in range(max_iter):
             conf_mx = self.calculate_conf_mx(mu, worker_annotations_values, worker_annotations_tasks)
@@ -92,18 +105,26 @@ class RaykarPlusDs(WithFeaturesInference):
 
             grads = np.linalg.norm((1 - predictions.max(axis=1))[:, None] * X, axis=1) ** 2
 
-            buckets = self.build_gradient_buckets(ground_truth_ids, grads, predictions, n_bucket)
-            if confidence_estimator is None:
-                # Gonna get it ourself
-                estimator = self.get_confidence(buckets, rnd_accuracy)
-            else:
-                estimator = confidence_estimator
+            buckets = self.build_gradient_buckets(ground_truth_ids if look_in_data else mu.argmax(axis=1),
+                                                  grads, predictions, n_bucket, mu, prior_weight, prior_accuracy)
+
+            ds_cls_accuracy = self.ds_classifier_accuracy(np.argmax(mu, axis=1), prior)
+            # if confidence_estimator is None:
+            #     # Gonna get it ourself
+            #     if look_in_data:
+            #         estimator = self.get_confidence(buckets, rnd_accuracy)
+            #     else:
+            #         estimator = self.get_confidence(buckets, ds_cls_accuracy)
+            # else:
+            #     estimator = confidence_estimator
+            # for i in range(n_tasks):
+            #     confidence = estimator(grads[i])
+            #     l[i] = confidence
             for i in range(n_tasks):
-                confidence = estimator(grads[i])
-                l[i] = confidence
-            for i in range(n_tasks):
+                bucket = RaykarPlusDs.get_bucket_for_point(buckets, grads[i])
+                l[i] = bucket.raykar_weight
                 for j in range(n_values):
-                    mu[i, j] = np.log(predictions[i, j] * l[i] + prior[j] * (1 - l[i])) + likelihood[i, j]
+                    mu[i, j] = np.log(predictions[i, j] * l[i] + bucket.prior[j] * (1 - l[i])) + likelihood[i, j]
 
             mu = np.exp(mu)
             mu = sklearn.preprocessing.normalize(mu, axis=1, norm='l1')
@@ -113,13 +134,21 @@ class RaykarPlusDs(WithFeaturesInference):
             loglike = self.get_loglike(mu, weights, likelihood)
 
             self.logit_.append(loglike)
-            if iter % (max_iter // 5) == 0:
+            if iter % (max_iter // 5) == 0 or iter == max_iter - 1:
                 if axes is not None:
                     x = (iter // (max_iter // 5)) // 2
                     y = (iter // (max_iter // 5)) % 2
-                    ds_cls_accuracy = self.ds_classifier_accuracy(np.argmax(mu, axis=1), prior)
+                    if iter == max_iter - 1:
+                        x, y = -1, -1
+                    print(f'Current prior {prior}')
+                    if ground_truth_ids is not None:
+                        cls_accuracies = []
+                        for i in range(n_values):
+                            cls_tasks = ground_truth_ids == i
+                            cls_accuracies.append((predictions[cls_tasks].argmax(axis=1) == i).mean())
+                        print(f'Average class recalls are: {cls_accuracies}')
                     from benchmark import plot_gradient_buckets
-                    plot_gradient_buckets(axes[x, y], buckets, rnd_accuracy, ds_cls_accuracy)
+                    plot_gradient_buckets(axes[x, y], buckets, rnd_accuracy)
                     axes[x, y].set_title(f'After {iter + 1} epochs')
                 print(f'Iter {iter:02}, logit: {loglike:.6f}')
                 print(f'Average Raykar weight is {l.mean()}')
@@ -147,7 +176,7 @@ class RaykarPlusDs(WithFeaturesInference):
         return self.classifier.apply(features, self.values)
 
     @classmethod
-    def build_gradient_buckets(cls, ground_truth_ids, grads, predictions, n_bucket):
+    def build_gradient_buckets(cls, ground_truth_ids, grads, predictions, n_bucket, mu, prior_weight, prior_accuracy):
         n_samples = len(grads)
         correct = np.argmax(predictions, axis=1) == ground_truth_ids
         order = np.argsort(grads)
@@ -156,8 +185,8 @@ class RaykarPlusDs(WithFeaturesInference):
 
         for i in range(n_buckets):
             cur_points = order[n_bucket * i: min(n_bucket * (i + 1), n_samples)]
-            # print(predictions[cur_points].argmax(axis=1))
-            buckets.append(GradientBucket(grads[cur_points], correct[cur_points]))
+            buckets.append(
+                GradientBucket(i, prior_weight, prior_accuracy, grads[cur_points], correct[cur_points], predictions[cur_points], mu[cur_points]))
 
         return buckets
 
@@ -169,21 +198,11 @@ class RaykarPlusDs(WithFeaturesInference):
         return np.array(ground_truth_ids)
 
     @classmethod
-    def get_confidence(cls, buckets: List[GradientBucket], rnd_accuracy: float):
-        confidences = []
-        right_ends = []
+    def get_bucket_for_point(cls, buckets: List[GradientBucket], grad: float):
         for i in range(len(buckets)):
-            size = buckets[i].size
-            confidences.append(binom.sf(size * rnd_accuracy, size, p=buckets[i].accuracy))
-            # confidences.append(1 - (np.random.binomial(1, p=buckets[i].accuracy, size=(10000, size)).sum(axis=1) <=
-            #                         size * rnd_accuracy).mean())
-            right_ends.append(buckets[i].right_end)
-        right_ends[-1] += 1
-
-        def get_confidence_bind(x):
-            return confidences[bisect.bisect_left(right_ends, x)]
-
-        return get_confidence_bind
+            if grad <= buckets[i].right_end:
+                return buckets[i]
+        return buckets[-1]
 
     @staticmethod
     def ds_classifier_accuracy(ground_truth, prior):

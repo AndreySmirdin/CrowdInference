@@ -21,8 +21,8 @@ from typing import Iterable, Dict, List, Optional, Tuple
 def features2np(provider: data.DataProvider) -> Tuple[np.ndarray, np.ndarray]:
     features = provider.features()
     n_features = len(features[list(features.keys())[0]])
-    n_tasks = len(features)
-    X = np.zeros((n_tasks, n_features))
+    n_tasks_with_labels = len(provider.gold())
+    X = np.zeros((n_tasks_with_labels, n_features))
     y = []
     for i, estimation in enumerate(provider.gold()):
         X[i] = features[estimation.task]
@@ -44,7 +44,7 @@ def get_classifier_accuracy(inference: WithFeaturesInference, data_provider: dat
 
 
 def get_accuracy(provider: data.DataProvider, inference: TruthInference, max_iter: int, confidence_estimator,
-                 lr: float, axes):
+                 lr: float, axes, look_in_data: bool, prior_weight: float, prior_accuracy: float):
     correct = []
     incorrect = []
     accepted = 0
@@ -58,7 +58,8 @@ def get_accuracy(provider: data.DataProvider, inference: TruthInference, max_ite
         get_classifier_accuracy(inference, provider)
     else:
         inference.fit(provider.labels(), provider.features(), data=provider, max_iter=max_iter,
-                      confidence_estimator=confidence_estimator, lr=lr, test=provider.test(), axes=axes)
+                      confidence_estimator=confidence_estimator, lr=lr, test=provider.test(), axes=axes,
+                      look_in_data=look_in_data, prior_weight=prior_weight, prior_accuracy=prior_accuracy)
         get_classifier_accuracy(inference, provider)
 
     for estimate in inference.estimate():
@@ -79,7 +80,7 @@ def get_accuracy(provider: data.DataProvider, inference: TruthInference, max_ite
     return accuracy, {e.task for e in correct}, {e.task for e in incorrect}
 
 
-def compare_methods(provider, max_iter=15, confidence_estimator=None, lr=0.1):
+def compare_methods(provider, max_iter=15, confidence_estimator=None, lr=0.1, look_in_data=True, prior_weight=0, prior_accuracy=0.5):
     results = []
     points_results = []
     methods = [
@@ -94,8 +95,9 @@ def compare_methods(provider, max_iter=15, confidence_estimator=None, lr=0.1):
     test_stats = []
 
     for method in methods:
-        accuracy, correct, incorrect = get_accuracy(provider, method, max_iter, confidence_estimator, lr, axes[1:])
-        results.append((method.__str__(), accuracy))
+        accuracy, correct, incorrect = get_accuracy(provider, method, max_iter, confidence_estimator, lr, axes[1:],
+                                                    look_in_data, prior_weight, prior_accuracy)
+        results.append((method.__str__(), accuracy, f'Correct points: {len(correct)}'))
         axes[0, 0].plot(method.logit_)
         if method.__str__() != 'DS':
             axes[0, 1].plot(method.losses)
@@ -186,10 +188,11 @@ def plots_for_point(points, data, methods, k):
 
 
 def get_rnd_cls_accuracy(labels):
+    labels = np.array(labels)
     values = np.unique(labels)
     accuracies = []
     for value in values:
-        accuracies.append((value == labels).mean())
+        accuracies.append((labels == value).mean())
     accuracies = np.array(accuracies)
     print(f'True labels distribution {accuracies}')
     return (accuracies ** 2).sum()
@@ -233,20 +236,26 @@ def build_grad_hist(data, methods, points, name, n_bucket=100, train=True):
     return buckets, None, rnd_accuracy
 
 
-def plot_gradient_buckets(ax, buckets, rnd_accuracy, ds_accuracy=None):
+def plot_gradient_buckets(ax, buckets, rnd_accuracy):
     bucket_centers = list(map(lambda b: b.center, buckets))
-    bucket_accuracies = list(map(lambda b: b.accuracy, buckets))
+    bucket_accuracies = np.array(list(map(lambda b: b.accuracy, buckets)))
     bucket_conf_intervals = list(map(lambda b: b.conf_interval, buckets))
     bucket_widths = list(map(lambda b: b.width, buckets))
+    bucket_votes = np.vstack(list(map(lambda b: b.votes, buckets)))
 
-    ax.bar(bucket_centers, height=bucket_accuracies, yerr=bucket_conf_intervals, width=bucket_widths)
+    bottom = np.zeros(bucket_votes.shape[0])
+    for i in range(bucket_votes.shape[1]):
+        height = bucket_accuracies * bucket_votes[:, i] / bucket_votes.sum(axis=1)
+        ax.bar(bucket_centers, bottom=bottom, height=height,
+               yerr=bucket_conf_intervals if i == bucket_votes.shape[1] - 1 else None, width=bucket_widths)
+        bottom += height
     ax.set_xlabel('Градиент')
     ax.set_ylabel('Точность классификатора')
-    legend = ['Random classifier']
-    ax.plot(bucket_centers, [rnd_accuracy] * len(bucket_widths), 'red')
-    if ds_accuracy is not None:
-        ax.plot(bucket_centers, [ds_accuracy] * len(bucket_widths), 'green')
-        legend.append('DS classifier')
+    legend = ['DS classifier', 'Raykar weight', '(a + prior) / (a + b + 2*prior)']
+    # ax.plot(bucket_centers, [rnd_accuracy] * len(bucket_widths), 'red')
+    ax.plot(bucket_centers, [b.random_accuracy for b in buckets], 'purple')
+    ax.plot(bucket_centers, [b.raykar_weight for b in buckets], 'gold', linewidth=3)
+    ax.plot(bucket_centers, [b.posterior_expectation for b in buckets], 'red')
     ax.legend(legend)
 
 

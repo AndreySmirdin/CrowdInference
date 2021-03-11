@@ -11,6 +11,7 @@ import sklearn
 from sklearn import preprocessing
 from sklearn.datasets import load_svmlight_file
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 from crowd_inference.model.annotation import Annotation
 from crowd_inference.model.estimation import Estimation
@@ -85,23 +86,66 @@ class RelDataProvider(DataProvider):
 
 
 class AdultsDataProvider(DataProvider):
-    def __init__(self, labels_path: str, gold_path: str):
+    LABELS_PATH = './resources/datasets/adults/labels.txt'
+    GOLD_PATH = './resources/datasets/adults/gold.txt'
+
+    def __init__(self, gold_only=False):
         self._adult_labels = []
         self._adult_gold = []
-        with open(labels_path, newline='') as csvfile:
+        self._features = {}
+        labeled_urls = set()
+        with open(self.LABELS_PATH, newline='') as csvfile:
             file_reader = csv.reader(csvfile, delimiter='\t')
             for row in file_reader:
                 self._adult_labels.append(Annotation(row[0], row[1], row[2]))
-        with open(gold_path, newline='') as csvfile:
+                labeled_urls.add(row[1])
+        golden_urls = []
+        golden_url2value = {}
+        with open(self.GOLD_PATH, newline='') as csvfile:
             file_reader = csv.reader(csvfile, delimiter='\t')
             for row in file_reader:
                 self._adult_gold.append(Estimation(row[0], row[1]))
+                golden_urls.append(row[0])
+                golden_url2value[row[0]] = row[1]
+
+        intersection = list(labeled_urls.intersection(golden_urls))
+        test_urls = list(set(golden_urls).difference(labeled_urls))
+        labeled_urls = list(labeled_urls)
+
+        print(f'Number of annotated with ground truth is {len(intersection)}')
+        print(f'Number not annotated with ground truth is {len(test_urls)}')
+        vectorizer = TfidfVectorizer(analyzer='char_wb', ngram_range=(3, 3), max_features=50)
+        if gold_only:
+            key_urls = intersection
+        else:
+            key_urls = labeled_urls
+        print(len(key_urls), len(test_urls))
+        X = vectorizer.fit_transform(key_urls + test_urls).toarray()
+        print(X.dtype, X.shape)
+        self.X = []
+        self.y = []
+        for i in range(len(key_urls)):
+            self._features[key_urls[i]] = X[i]
+        for i in range(len(key_urls), len(X)):
+            self.X.append(X[i])
+            self.y.append(golden_url2value[test_urls[i - len(key_urls)]])
+        self.X = np.array(self.X)
+        self.y = np.array(self.y)
+        self._adult_gold = list(filter(lambda g: g.task in intersection, self._adult_gold))
+        if gold_only:
+            self._adult_labels = list(filter(lambda g: g.task in intersection, self._adult_labels))
 
     def labels(self) -> Iterable[Annotation]:
         return self._adult_labels
 
     def gold(self) -> Iterable[Estimation]:
         return self._adult_gold
+
+    def features(self):
+        return self._features
+
+    def test(self):
+        return self.X, self.y
 
 
 class MusicDataProvider(DataProvider):
